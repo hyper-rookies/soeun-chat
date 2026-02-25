@@ -36,11 +36,14 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: ECR 로그인
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Docker 빌드 + ECR push
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+          IMAGE_URI=$REGISTRY/${{ secrets.ECR_REPOSITORY }}:latest
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
 
