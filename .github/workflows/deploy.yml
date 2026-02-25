@@ -56,7 +56,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: ECR_REPO,AWS_ACCOUNT_ID
           script: |
-            REGION="ap-northeast""2"
+            REGION="ap-northeast-""2"
             REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
             aws ecr get-login-password --region $REGION | \
               docker login --username AWS --password-stdin $REGISTRY
