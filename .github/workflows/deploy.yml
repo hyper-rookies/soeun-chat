@@ -40,9 +40,11 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Docker 빌드 + ECR push
+        env:
+          ECR_REPO: ${{ vars.ECR_REPOSITORY }}
         run: |
           REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-          IMAGE_URI=$REGISTRY/${{ vars.ECR_REPOSITORY }}:latest
+          IMAGE_URI=$REGISTRY/$ECR_REPO:latest
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
 
@@ -52,12 +54,15 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: ECR_REPO,REGISTRY
           script: |
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-              docker login --username AWS --password-stdin \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPOSITORY }}:latest
+              docker login --username AWS --password-stdin $REGISTRY
+            docker pull $REGISTRY/$ECR_REPO:latest
             docker stop soeun-chat || true
             docker rm soeun-chat || true
             docker run -d --name soeun-chat -p 8080:8080 \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPOSITORY }}:latest
+              $REGISTRY/$ECR_REPO:latest
+        env:
+          ECR_REPO: ${{ vars.ECR_REPOSITORY }}
+          REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
