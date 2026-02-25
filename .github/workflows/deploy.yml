@@ -38,9 +38,11 @@ jobs:
       - name: Docker 빌드 + ECR push
         env:
           ECR_REPO: ${{ vars.ECR_REPOSITORY }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
-          REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          REGION="ap-northeast""2"
+          REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+          aws ecr get-login-password --region $REGION | \
             docker login --username AWS --password-stdin $REGISTRY
           IMAGE_URI=$REGISTRY/$ECR_REPO:latest
           docker build -t $IMAGE_URI .
@@ -52,9 +54,11 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: ECR_REPO,REGISTRY
+          envs: ECR_REPO,AWS_ACCOUNT_ID
           script: |
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            REGION="ap-northeast""2"
+            REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+            aws ecr get-login-password --region $REGION | \
               docker login --username AWS --password-stdin $REGISTRY
             docker pull $REGISTRY/$ECR_REPO:latest
             docker stop soeun-chat || true
@@ -63,4 +67,4 @@ jobs:
               $REGISTRY/$ECR_REPO:latest
         env:
           ECR_REPO: ${{ vars.ECR_REPOSITORY }}
-          REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
