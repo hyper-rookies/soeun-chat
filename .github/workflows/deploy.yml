@@ -35,15 +35,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: ECR 로그인
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
       - name: Docker 빌드 + ECR push
         env:
           ECR_REPO: ${{ vars.ECR_REPOSITORY }}
         run: |
           REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin $REGISTRY
           IMAGE_URI=$REGISTRY/$ECR_REPO:latest
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
