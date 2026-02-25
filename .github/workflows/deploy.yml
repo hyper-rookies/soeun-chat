@@ -39,6 +39,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
+      - name: 환경변수 확인 (디버깅용, 확인 후 삭제)
+        run: |
+          echo "REGISTRY: $REGISTRY"
+          echo "ECR_REPO: ${{ secrets.ECR_REPOSITORY }}"
+          echo "IMAGE_URI: $REGISTRY/${{ secrets.ECR_REPOSITORY }}:latest"
+
       - name: Docker 빌드 + ECR push
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
