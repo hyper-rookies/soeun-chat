@@ -42,7 +42,7 @@ jobs:
       - name: Docker 빌드 + ECR push
         run: |
           REGISTRY=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-          IMAGE_URI=$REGISTRY/${{ secrets.ECR_REPOSITORY }}:latest
+          IMAGE_URI=$REGISTRY/${{ vars.ECR_REPOSITORY }}:latest
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
 
@@ -56,8 +56,8 @@ jobs:
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin \
               ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPOSITORY }}:latest
             docker stop soeun-chat || true
             docker rm soeun-chat || true
             docker run -d --name soeun-chat -p 8080:8080 \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPOSITORY }}:latest
