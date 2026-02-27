@@ -62,7 +62,8 @@ public class BedrockService {
             - 데이터베이스명을 명시하세요: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
             - 날짜 필터가 없으면 최근 30일 기준으로 작성하세요.
             - 두 테이블이 모두 필요하면 UNION ALL을 사용하세요.
-            - 광고 데이터 분석과 무관한 질문에는 다음 SQL만 반환하세요: SELECT 'INVALID_QUERY' AS result
+            - ★중요★: UNION ALL을 사용할 때, 개별 SELECT 문 안에는 절대 ORDER BY를 사용하지 마세요. 정렬이 필요하다면 서브쿼리로 감싸거나 쿼리 맨 마지막에 한 번만 작성하세요.
+            - 광고 데이터 분석과 무관한 질문일 경우, 쿼리를 작성하지 말고 오직 다음 단어 하나만 반환하세요: INVALID
             """;
 
     private static final String ANSWER_SYSTEM_PROMPT = """
@@ -71,9 +72,6 @@ public class BedrockService {
             숫자는 가독성 있게 포맷팅하고, 핵심 인사이트를 제공하세요.
             """;
 
-    /**
-     * 사용자 질문으로 Athena SQL을 생성합니다 (동기, non-streaming).
-     */
     public String generateSql(String userMessage, List<ChatMessage> history) {
         List<Message> messages = buildConverseMessages(userMessage, history);
 
@@ -88,9 +86,6 @@ public class BedrockService {
         return response.output().message().content().get(0).text().trim();
     }
 
-    /**
-     * 최종 답변을 SseEmitter로 스트리밍하고, 전체 응답 텍스트를 반환합니다.
-     */
     public String streamAnswer(SseEmitter emitter,
                                String userMessage,
                                String queryResult,
