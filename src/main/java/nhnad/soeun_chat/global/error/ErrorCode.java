@@ -29,6 +29,8 @@ public enum ErrorCode {
     // 채팅
     CONVERSATION_NOT_FOUND(HttpStatus.NOT_FOUND, "대화를 찾을 수 없습니다."),
     CHAT_PROCESSING_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "채팅 처리 중 오류가 발생했습니다."),
+    SQL_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "SQL 생성 중 오류가 발생했습니다."),
+    ATHENA_QUERY_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "데이터 조회 중 오류가 발생했습니다."),
 
     // 리포트
     REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "리포트를 찾을 수 없습니다."),
