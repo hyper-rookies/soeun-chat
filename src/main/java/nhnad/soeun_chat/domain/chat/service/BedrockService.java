@@ -32,7 +32,7 @@ public class BedrockService {
             반드시 순수 SQL만 반환하세요. 설명, 한글 텍스트, 마크다운 코드블록은 절대 포함하지 마세요.
 
             [google_ad_performance 테이블]
-            - 파티션: year, month, day
+            - 파티션: year, month, day (모두 VARCHAR 타입)
             - 주요 컬럼: camp_id, camp_name, camp_advertising_channel_type, camp_status,
                           agroup_id, agroup_name, keyword_id, keyword_text, keyword_match_type,
                           device, network_type, basic_date, adv_id, date, quarter, day_of_week, week
@@ -44,7 +44,7 @@ public class BedrockService {
                                   video_quartile_p75_rate, video_quartile_p100_rate
 
             [kakao_ad_performance 테이블]
-            - 파티션: year, month, day
+            - 파티션: year, month, day (모두 VARCHAR 타입)
             - 주요 컬럼: kwd_id, kwd_name, kwd_config, kwd_url, kwd_bid_type, kwd_bid_amount,
                           agroup_id, agroup_name, camp_id, camp_name, camp_type,
                           biz_id, biz_name, basic_date, adv_id
@@ -58,11 +58,12 @@ public class BedrockService {
             - 성과 컬럼(double): spending, ctr, ppc, conv_purchase_p_1d, conv_purchase_p_7d
 
             쿼리 작성 규칙:
-            - 항상 파티션 컬럼(year, month, day)을 WHERE 조건에 포함하세요.
             - 데이터베이스명을 명시하세요: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
-            - 날짜 필터가 없으면 최근 30일 기준으로 작성하세요.
+            - 항상 파티션 컬럼(year, month, day)을 WHERE 조건에 포함하세요.
+            - ★중요(타입 주의)★: 파티션 컬럼은 VARCHAR입니다. YEAR(), MONTH() 등 BIGINT를 반환하는 함수와 직접 비교하면 TYPE_MISMATCH 에러가 발생합니다. 반드시 CAST를 사용하거나 문자열 포맷팅으로 비교하세요.
+            - 날짜 필터가 없으면 최근 30일 기준으로 작성하세요. (추천 조건식 예시: DATE(concat(year, '-', month, '-', day)) >= CURRENT_DATE - INTERVAL '30' DAY)
             - 두 테이블이 모두 필요하면 UNION ALL을 사용하세요.
-            - ★중요★: UNION ALL을 사용할 때, 개별 SELECT 문 안에는 절대 ORDER BY를 사용하지 마세요. 정렬이 필요하다면 서브쿼리로 감싸거나 쿼리 맨 마지막에 한 번만 작성하세요.
+            - ★중요(정렬 규칙)★: UNION ALL을 사용할 때, 개별 SELECT 문 안에는 절대 ORDER BY를 사용하지 마세요. 정렬이 필요하다면 서브쿼리로 감싸거나 쿼리 맨 마지막에 한 번만 작성하세요.
             - 광고 데이터 분석과 무관한 질문일 경우, 쿼리를 작성하지 말고 오직 다음 단어 하나만 반환하세요: INVALID
             """;
 
