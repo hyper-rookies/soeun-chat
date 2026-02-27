@@ -45,14 +45,27 @@ public class ChatService {
             String sql = bedrockService.generateSql(userMessage, history);
             log.info("[{}] 생성된 SQL: {}", conversationId, sql);
 
-            // 4. Athena 쿼리 실행
+            // 4. 광고 무관 질문 처리
+            if (sql.trim().toUpperCase().contains("INVALID_QUERY")) {
+                log.info("[{}] 광고 데이터 무관 질문 감지", conversationId);
+                String notice = "광고 성과 데이터와 관련된 질문만 답변할 수 있습니다.";
+                emitter.send(SseEmitter.event().data(notice));
+                messageRepository.save(conversationId, "user", userMessage);
+                messageRepository.save(conversationId, "assistant", notice);
+                conversationRepository.updateTimestamp(conversationId);
+                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                emitter.complete();
+                return;
+            }
+
+            // 5. Athena 쿼리 실행
             String queryResult = athenaService.executeQuery(sql);
             log.info("[{}] 쿼리 완료", conversationId);
 
-            // 5. Bedrock으로 최종 답변 스트리밍 (SseEmitter로 직접 전송)
+            // 6. Bedrock으로 최종 답변 스트리밍 (SseEmitter로 직접 전송)
             String fullAnswer = bedrockService.streamAnswer(emitter, userMessage, queryResult, history);
 
-            // 6. DynamoDB에 대화 기록 저장
+            // 7. DynamoDB에 대화 기록 저장
             messageRepository.save(conversationId, "user", userMessage);
             messageRepository.save(conversationId, "assistant", fullAnswer);
             conversationRepository.updateTimestamp(conversationId);
