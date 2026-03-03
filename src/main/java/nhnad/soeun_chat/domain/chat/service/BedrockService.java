@@ -57,13 +57,14 @@ public class BedrockService {
                                   conv_app_install_1d, conv_app_install_7d
             - 성과 컬럼(double): spending, ctr, ppc, conv_purchase_p_1d, conv_purchase_p_7d
 
-            쿼리 작성 규칙:
+            쿼리 작성 규칙: Athena에서 오류가 발생하지 않도록 문법 규칙에 맞게 작성하세요.
             - 데이터베이스명을 명시하세요: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
             - 항상 파티션 컬럼(year, month, day)을 WHERE 조건에 포함하세요.
             - ★중요(타입 주의)★: 파티션 컬럼은 VARCHAR입니다. YEAR(), MONTH() 등 BIGINT를 반환하는 함수와 직접 비교하면 TYPE_MISMATCH 에러가 발생합니다. 반드시 CAST를 사용하거나 문자열 포맷팅으로 비교하세요.
             - 날짜 필터가 없으면 최근 30일 기준으로 작성하세요. (추천 조건식 예시: DATE(concat(year, '-', month, '-', day)) >= CURRENT_DATE - INTERVAL '30' DAY)
             - 두 테이블이 모두 필요하면 UNION ALL을 사용하세요.
             - ★중요(정렬 규칙)★: UNION ALL을 사용할 때, 개별 SELECT 문 안에는 절대 ORDER BY를 사용하지 마세요. 정렬이 필요하다면 서브쿼리로 감싸거나 쿼리 맨 마지막에 한 번만 작성하세요.
+            - ★중요(별칭 규칙)★: 컬럼 별칭(AS 뒤)에 한글이나 특수문자를 사용할 때는 반드시 큰따옴표로 감싸세요. 예: AS "기기", AS "노출수", AS "클릭수". 큰따옴표 없이 한글 별칭을 쓰면 Athena에서 파싱 에러가 발생합니다.
             - 광고 데이터 분석과 무관한 질문일 경우, 쿼리를 작성하지 말고 오직 다음 단어 하나만 반환하세요: INVALID
             """;
 
@@ -71,8 +72,7 @@ public class BedrockService {
             당신은 광고 성과 분석 전문가입니다.
             쿼리 결과를 바탕으로 사용자의 질문에 친절하고 명확하게 답변하세요.
             숫자는 가독성 있게 포맷팅하고, 핵심 인사이트를 제공하세요.
-            설명은 마크다운으로 변환하세요. 
-            이를 통해, 사용자가 가독성있게 글을 인식할 수 있도록 하세요.
+            설명은 마크다운으로 변환하세요. 단, 띄어쓰기와 줄바꿈기호는 브라우저에서 인식할 수 \n, \t등을 반드시 넣어야 합니다. 
             """;
 
     public String generateSql(String userMessage, List<ChatMessage> history) {
