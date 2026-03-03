@@ -37,6 +37,7 @@ public class SecurityConfig {
                         .requestMatchers("/health").permitAll()
                         // TODO: 로컬 테스트용 - 배포 전 .authenticated()로 변경
                         .requestMatchers("/api/chat/**").permitAll()
+                        .requestMatchers("/api/conversations/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilter(corsConfig.corsFilter())

@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Repository
@@ -39,6 +40,38 @@ public class MessageRepository {
         Collections.reverse(items);  // 오름차순으로 변환
         log.debug("메시지 히스토리 조회 - conversationId: {}, count: {}", conversationId, items.size());
         return items;
+    }
+
+    public void deleteByConversationId(String conversationId) {
+        // GSI로 해당 대화의 모든 messageId 조회
+        QueryResponse response = dynamoDbClient.query(QueryRequest.builder()
+                .tableName(TABLE_NAME)
+                .indexName(GSI_NAME)
+                .keyConditionExpression("conversationId = :cid")
+                .expressionAttributeValues(Map.of(":cid", AttributeValue.fromS(conversationId)))
+                .projectionExpression("messageId")
+                .build());
+
+        List<Map<String, AttributeValue>> items = response.items();
+        if (items.isEmpty()) return;
+
+        // 25개씩 배치 삭제 (DynamoDB 제한)
+        List<WriteRequest> deleteRequests = items.stream()
+                .map(item -> WriteRequest.builder()
+                        .deleteRequest(DeleteRequest.builder()
+                                .key(Map.of("messageId", item.get("messageId")))
+                                .build())
+                        .build())
+                .collect(Collectors.toList());
+
+        int batchSize = 25;
+        for (int i = 0; i < deleteRequests.size(); i += batchSize) {
+            List<WriteRequest> batch = deleteRequests.subList(i, Math.min(i + batchSize, deleteRequests.size()));
+            dynamoDbClient.batchWriteItem(BatchWriteItemRequest.builder()
+                    .requestItems(Map.of(TABLE_NAME, batch))
+                    .build());
+        }
+        log.info("메시지 일괄 삭제 - conversationId: {}, count: {}", conversationId, items.size());
     }
 
     public void save(String conversationId, String role, String content) {
