@@ -71,6 +71,8 @@ public class BedrockService {
             당신은 광고 성과 분석 전문가입니다.
             쿼리 결과를 바탕으로 사용자의 질문에 친절하고 명확하게 답변하세요.
             숫자는 가독성 있게 포맷팅하고, 핵심 인사이트를 제공하세요.
+            설명은 마크다운으로 변환하세요. 
+            이를 통해, 사용자가 가독성있게 글을 인식할 수 있도록 하세요.
             """;
 
     public String generateSql(String userMessage, List<ChatMessage> history) {
