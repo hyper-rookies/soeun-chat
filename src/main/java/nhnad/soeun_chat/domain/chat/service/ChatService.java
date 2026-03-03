@@ -20,7 +20,6 @@ public class ChatService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final BedrockService bedrockService;
-    private final AthenaService athenaService;
 
     @Async("chatExecutor")
     public void processChat(SseEmitter emitter,
@@ -41,34 +40,10 @@ public class ChatService {
                     ))
                     .toList();
 
-            // 3. Bedrock으로 Athena SQL 생성
-            String sql = bedrockService.generateSql(userMessage, history);
-            log.info("[{}] 생성된 SQL/응답: {}", conversationId, sql);
+            // 3. Bedrock Agentic Loop (SQL 생성 → Athena 쿼리 → 답변 스트리밍)
+            String fullAnswer = bedrockService.runAgenticLoop(emitter, userMessage, history);
 
-            // 4. 광고 무관 질문 처리 (Athena 쿼리 실행 생략)
-            if ("INVALID".equalsIgnoreCase(sql.trim())) {
-                log.info("[{}] 광고 데이터 무관 질문 감지", conversationId);
-
-                String fallbackInstruction = "System Note: 사용자의 질문이 광고 성과 데이터 분석 범위를 벗어납니다. 광고 데이터 전문가로서 데이터베이스를 조회할 수 없는 내용임을 정중하게 안내하세요.";
-                String fullAnswer = bedrockService.streamAnswer(emitter, userMessage, fallbackInstruction, history);
-
-                messageRepository.save(conversationId, "user", userMessage);
-                messageRepository.save(conversationId, "assistant", fullAnswer);
-                conversationRepository.updateTimestamp(conversationId);
-
-                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                emitter.complete();
-                return;
-            }
-
-            // 5. Athena 쿼리 실행
-            String queryResult = athenaService.executeQuery(sql);
-            log.info("[{}] 쿼리 완료", conversationId);
-
-            // 6. Bedrock으로 최종 답변 스트리밍
-            String fullAnswer = bedrockService.streamAnswer(emitter, userMessage, queryResult, history);
-
-            // 7. DynamoDB에 대화 기록 저장
+            // 4. DynamoDB에 대화 기록 저장
             messageRepository.save(conversationId, "user", userMessage);
             messageRepository.save(conversationId, "assistant", fullAnswer);
             conversationRepository.updateTimestamp(conversationId);
