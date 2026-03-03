@@ -1,5 +1,6 @@
 package nhnad.soeun_chat.domain.chat.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import nhnad.soeun_chat.domain.chat.dto.ChatMessage;
@@ -8,6 +9,7 @@ import nhnad.soeun_chat.global.exception.InternalServerException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.*;
@@ -26,6 +28,8 @@ public class BedrockService {
 
     private final BedrockRuntimeClient bedrockRuntimeClient;
     private final BedrockRuntimeAsyncClient bedrockRuntimeAsyncClient;
+    private final AthenaService athenaService;
+    private final ObjectMapper objectMapper;
 
     private static final String SQL_SYSTEM_PROMPT = """
             당신은 AWS Athena SQL 전문가입니다. 사용자의 자연어 질문을 Athena SQL로 변환하세요.
@@ -68,12 +72,155 @@ public class BedrockService {
             - 광고 데이터 분석과 무관한 질문일 경우, 쿼리를 작성하지 말고 오직 다음 단어 하나만 반환하세요: INVALID
             """;
 
-    private static final String ANSWER_SYSTEM_PROMPT = """
-            당신은 광고 성과 분석 전문가입니다.
-            쿼리 결과를 바탕으로 사용자의 질문에 친절하고 명확하게 답변하세요.
-            숫자는 가독성 있게 포맷팅하고, 핵심 인사이트를 제공하세요.
-            설명은 마크다운으로 변환하세요. 단, 띄어쓰기와 줄바꿈기호는 브라우저에서 인식할 수 \n, \t등을 반드시 넣어야 합니다. 
+    private static final String AGENTIC_SYSTEM_PROMPT = """
+            당신은 광고 성과 분석 AI 에이전트입니다.
+            사용자의 자연어 질문을 분석하여 필요한 SQL 쿼리를 생성하고,
+            execute_athena_query 도구를 호출하여 데이터를 조회한 후,
+            분석 결과를 친절하게 설명하세요.
+
+            ### 요청 타입 판별 규칙 (필수)
+
+            액션을 실행하기 전에 먼저 사용자 요청에서 request_type을 판별하세요.
+
+            **판별 순서 (우선순위):**
+
+            1. sales_prediction_chart (최우선)
+               - "일별" AND "최근" AND "매출" 모두 포함
+               - 예: "최근 3달 일별 매출을 예측해줘"
+
+            2. prediction_chart
+               - "일별" AND "최근" AND "예측" 모두 포함
+               - 예: "최근 2달 일별 광고비를 기반으로 예측 데이터를 보여줘"
+
+            3. chart
+               - 다음 중 하나 이상 포함: "차트", "그래프", "시각화", "트렌드", "추이"
+               - 예: "지난주 일별 클릭수 차트 보여줘"
+
+            4. csv (기본값)
+               - 위 조건에 해당하지 않으면 csv
+               - 예: "지난주 성과 알려줘"
+
+            **판별 로직:**
+            ```
+            if ("일별" in 요청 and "최근" in 요청 and "매출" in 요청):
+                request_type = "sales_prediction_chart"
+            elif ("일별" in 요청 and "최근" in 요청 and "예측" in 요청):
+                request_type = "prediction_chart"
+            elif ("차트" in 요청 or "그래프" in 요청 or "시각화" in 요청 or "트렌드" in 요청 or "추이" in 요청):
+                request_type = "chart"
+            else:
+                request_type = "csv"
+            ```
+
+            **중요: request_type은 내부적으로만 결정하며, 사용자에게 출력하지 않습니다.**
+
+            ---
+
+            ### 차트 요청 특수 규칙
+
+            사용자 요청에 "차트", "그래프", "시각화", "트렌드", "추이"가 포함되면:
+
+            1. 사용자가 요청한 지표(지수)를 모두 추출
+            2. 지표가 3개 이상이면 즉시 다음만 출력:
+               > "차트에 표시할 지표를 2개까지 선택해주세요.\\n요청하신 지표: [지표 목록]\\n어떤 2개를 차트로 보시겠어요?"
+
+            3. 지표가 2개 이하면 쿼리 생성
+            4. 지표가 하나도 없으면 다음만 출력:
+               > "차트에 표시할 지표를 알려주세요."
+
+            ---
+
+            ### 데이터 조회 규칙
+
+            **사용 가능한 테이블:**
+
+            [google_ad_performance 테이블]
+            - 파티션: year, month, day (모두 VARCHAR)
+            - 주요 컬럼: camp_id, camp_name, camp_advertising_channel_type, camp_status,
+                          agroup_id, agroup_name, keyword_id, keyword_text, keyword_match_type,
+                          device, network_type, basic_date, adv_id, date, quarter, day_of_week, week
+            - 성과 컬럼: impressions, clicks, video_views, all_conversions, conversions (bigint)
+                         cost_micros, ctr, average_cpc, all_conversions_value,
+                         conversions_value, value_per_conversion, cost_per_conversion (double)
+
+            [kakao_ad_performance 테이블]
+            - 파티션: year, month, day (모두 VARCHAR)
+            - 주요 컬럼: kwd_id, kwd_name, kwd_config, kwd_url, kwd_bid_type, kwd_bid_amount,
+                          agroup_id, agroup_name, camp_id, camp_name, camp_type,
+                          biz_id, biz_name, basic_date, adv_id
+            - 성과 컬럼: imp, click, rimp, rank (bigint)
+                         conv_purchase_1d, conv_purchase_7d, spending, ctr, ppc (double)
+
+            **SQL 작성 규칙:**
+
+            1. 데이터베이스 명시: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
+            2. 파티션 컬럼(year, month, day)은 항상 WHERE 절에 포함
+            3. 파티션 컬럼은 VARCHAR → CAST/문자열 포맷팅 필수 (YEAR(), MONTH() 함수 절대 금지)
+            4. 한글 별칭은 큰따옴표: AS "노출수", AS "클릭수"
+            5. UNION ALL 사용 시 ORDER BY는 서브쿼리나 맨 마지막에만
+
+            **날짜 처리:**
+            - 사용자 입력 "기간:"에 있는 startDate/endDate를 그대로 사용
+            - DATE_SUB, CURRENT_DATE 등 절대 사용하지 않음
+            - basic_date BETWEEN startDate AND endDate 형식 사용
+
+            ---
+
+            ### 답변 규칙
+
+            **데이터를 성공적으로 조회했을 때:**
+
+            1. 사용자 질문에 정확하고 친절하게 답변
+            2. 핵심 지표를 강조 (굵게 표현 또는 숫자 강조)
+            3. 인사이트 제공 (단순 수치가 아닌 의미 있는 분석)
+            4. 마크다운 포맷 사용: 제목(##), 굵게(**), 줄바꿈(\\n)
+            5. 가독성을 위해 구간마다 공백 추가
+
+            **예시 답변:**
+            ```
+            지난주 광고 성과를 분석한 결과입니다.\\n\\n## 📊 주요 지표\\n- **총 노출수**: 1,234,567회\\n- **총 클릭수**: 45,678회\\n- **평균 CTR**: 3.7%\\n\\n## 💡 인사이트\\n지난주 클릭수가 전전주 대비 15% 증가했습니다.
+            ```
+
+            ---
+
+            ### 에러 처리 규칙
+
+            **1. 데이터가 없을 때:**
+            - 다음만 출력: "해당 데이터는 조회 불가능합니다."
+            - 추가 설명 절대 금지
+
+            **2. 광고 무관 질문:**
+            - 도구를 호출하지 않고 정중하게 안내
+            - 예: "죄송하지만 광고 성과 분석 범위를 벗어난 질문입니다."
+
+            **3. SQL 실행 실패:**
+            - ERROR status로 전달받으면 SQL을 수정하여 재시도
+
+            ---
+
+            ### 최종 응답 규칙 (CRITICAL)
+
+            **export_result 액션 완료 후:**
+
+            다음 문장만 단독으로 반환하세요:
+            > "요청한 처리가 완료되었습니다."
+
+            절대 금지:
+            - URL, 파일 경로 포함
+            - SQL, JSON 포함
+            - 설명, 문맥 포함
+            - 부가 정보 포함
+
+            이 규칙은 모든 규칙보다 우선입니다.
             """;
+
+    private static class IterationState {
+        final StringBuilder text      = new StringBuilder();
+        final StringBuilder inputJson = new StringBuilder();
+        String toolUseId  = null;
+        String toolName   = null;
+        String stopReason = null;
+    }
 
     public String generateSql(String userMessage, List<ChatMessage> history) {
         List<Message> messages = buildConverseMessages(userMessage, history);
@@ -89,49 +236,154 @@ public class BedrockService {
         return response.output().message().content().get(0).text().trim();
     }
 
-    public String streamAnswer(SseEmitter emitter,
-                               String userMessage,
-                               String queryResult,
-                               List<ChatMessage> history) {
-        String userPrompt = String.format("질문: %s\n\n쿼리 결과:\n%s", userMessage, queryResult);
-        List<Message> messages = buildConverseMessages(userPrompt, history);
-
+    public String runAgenticLoop(SseEmitter emitter, String userMessage, List<ChatMessage> history) {
+        List<Message> messages = buildConverseMessages(userMessage, history);
         StringBuilder fullAnswer = new StringBuilder();
+        ToolConfiguration toolConfig = buildToolConfiguration();
 
-        ConverseStreamResponseHandler handler = ConverseStreamResponseHandler.builder()
-                .subscriber(ConverseStreamResponseHandler.Visitor.builder()
-                        .onContentBlockDelta(event -> {
-                            String text = event.delta().text();
-                            if (text != null && !text.isEmpty()) {
-                                fullAnswer.append(text);
-                                try {
-                                    emitter.send(SseEmitter.event().data(text));
-                                } catch (Exception e) {
-                                    log.warn("SSE 전송 실패: {}", e.getMessage());
+        for (int iter = 0; iter < 5; iter++) {
+            log.info("Agentic loop iteration {}", iter + 1);
+
+            IterationState state = new IterationState();
+
+            ConverseStreamResponseHandler handler = ConverseStreamResponseHandler.builder()
+                    .subscriber(ConverseStreamResponseHandler.Visitor.builder()
+                            .onContentBlockStart(event -> {
+                                ToolUseBlockStart toolUse = event.start().toolUse();
+                                if (toolUse != null) {
+                                    state.toolUseId = toolUse.toolUseId();
+                                    state.toolName  = toolUse.name();
+                                    log.info("Tool use started: {} ({})", state.toolName, state.toolUseId);
                                 }
-                            }
-                        })
-                        .build())
-                .build();
+                            })
+                            .onContentBlockDelta(event -> {
+                                ContentBlockDelta delta = event.delta();
+                                if (delta.text() != null && !delta.text().isEmpty()) {
+                                    state.text.append(delta.text());
+                                    fullAnswer.append(delta.text());
+                                    try {
+                                        emitter.send(SseEmitter.event().data(delta.text()));
+                                    } catch (Exception e) {
+                                        log.warn("SSE 전송 실패: {}", e.getMessage());
+                                    }
+                                } else if (delta.toolUse() != null && delta.toolUse().input() != null) {
+                                    state.inputJson.append(delta.toolUse().input());
+                                }
+                            })
+                            .onMessageStop(event -> {
+                                state.stopReason = event.stopReasonAsString();
+                                log.info("stopReason: {}", state.stopReason);
+                            })
+                            .build())
+                    .build();
 
-        try {
-            bedrockRuntimeAsyncClient.converseStream(
-                    ConverseStreamRequest.builder()
-                            .modelId(modelId)
-                            .system(SystemContentBlock.fromText(ANSWER_SYSTEM_PROMPT))
-                            .messages(messages)
-                            .build(),
-                    handler
-            ).get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new InternalServerException(ErrorCode.CHAT_PROCESSING_ERROR);
-        } catch (ExecutionException e) {
-            log.error("Bedrock 스트리밍 실패: {}", e.getMessage());
-            throw new InternalServerException(ErrorCode.CHAT_PROCESSING_ERROR);
+            try {
+                bedrockRuntimeAsyncClient.converseStream(
+                        ConverseStreamRequest.builder()
+                                .modelId(modelId)
+                                .system(SystemContentBlock.fromText(AGENTIC_SYSTEM_PROMPT))
+                                .messages(messages)
+                                .toolConfig(toolConfig)
+                                .build(),
+                        handler
+                ).get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new InternalServerException(ErrorCode.CHAT_PROCESSING_ERROR);
+            } catch (ExecutionException e) {
+                log.error("Bedrock 스트리밍 실패: {}", e.getMessage());
+                throw new InternalServerException(ErrorCode.CHAT_PROCESSING_ERROR);
+            }
+
+            // Parse SQL from accumulated tool input JSON
+            String sql = null;
+            if (state.toolUseId != null && state.inputJson.length() > 0) {
+                try {
+                    sql = objectMapper.readTree(state.inputJson.toString()).get("sql").asText();
+                } catch (Exception e) {
+                    log.error("SQL 파싱 실패: {}", e.getMessage());
+                }
+            }
+
+            // Reconstruct assistant message and add to history
+            List<ContentBlock> assistantContent = new ArrayList<>();
+            if (state.text.length() > 0) {
+                assistantContent.add(ContentBlock.fromText(state.text.toString()));
+            }
+            if (state.toolUseId != null && sql != null) {
+                assistantContent.add(ContentBlock.fromToolUse(
+                        ToolUseBlock.builder()
+                                .toolUseId(state.toolUseId)
+                                .name(state.toolName)
+                                .input(Document.mapBuilder().putString("sql", sql).build())
+                                .build()
+                ));
+            }
+            if (!assistantContent.isEmpty()) {
+                messages.add(Message.builder()
+                        .role(ConversationRole.ASSISTANT)
+                        .content(assistantContent)
+                        .build());
+            }
+
+            // Decide next step
+            if (!"tool_use".equals(state.stopReason) || state.toolUseId == null || sql == null) {
+                break;
+            }
+
+            // Execute Athena query and feed result back to Claude
+            String toolResultContent;
+            ToolResultStatus toolResultStatus;
+            try {
+                toolResultContent = athenaService.executeQuery(sql);
+                toolResultStatus  = ToolResultStatus.SUCCESS;
+                log.info("Athena 쿼리 성공");
+            } catch (Exception e) {
+                toolResultContent = "쿼리 실행 실패: " + e.getMessage();
+                toolResultStatus  = ToolResultStatus.ERROR;
+                log.error("Athena 쿼리 실패: {}", e.getMessage());
+            }
+
+            messages.add(Message.builder()
+                    .role(ConversationRole.USER)
+                    .content(ContentBlock.fromToolResult(
+                            ToolResultBlock.builder()
+                                    .toolUseId(state.toolUseId)
+                                    .status(toolResultStatus)
+                                    .content(ToolResultContentBlock.fromText(toolResultContent))
+                                    .build()
+                    ))
+                    .build());
         }
 
         return fullAnswer.toString();
+    }
+
+    private ToolConfiguration buildToolConfiguration() {
+        Document inputSchema = Document.mapBuilder()
+                .putString("type", "object")
+                .putString("description", "Athena SQL 쿼리를 실행하여 광고 데이터를 조회합니다")
+                .putDocument("properties", Document.mapBuilder()
+                        .putDocument("sql", Document.mapBuilder()
+                                .putString("type", "string")
+                                .putString("description", "실행할 Athena SQL 쿼리")
+                                .build())
+                        .build())
+                .putDocument("required", Document.listBuilder()
+                        .addString("sql")
+                        .build())
+                .build();
+
+        return ToolConfiguration.builder()
+                .tools(Tool.fromToolSpec(
+                        ToolSpecification.builder()
+                                .name("execute_athena_query")
+                                .description("AWS Athena를 사용하여 광고 성과 데이터를 조회합니다. " +
+                                           "제공된 SQL을 실행하고 결과를 반환합니다.")
+                                .inputSchema(ToolInputSchema.fromJson(inputSchema))
+                                .build()
+                ))
+                .build();
     }
 
     private List<Message> buildConverseMessages(String userMessage, List<ChatMessage> history) {
