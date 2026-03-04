@@ -1,5 +1,6 @@
 package nhnad.soeun_chat.global.config;
 
+import jakarta.servlet.DispatcherType;
 import nhnad.soeun_chat.global.jwt.JwtAuthenticationEntryPoint;
 import nhnad.soeun_chat.global.jwt.ExceptionHandlerFilter;
 import nhnad.soeun_chat.global.jwt.JwtAuthFilter;
@@ -33,11 +34,10 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e.authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/health").permitAll()
-                        // TODO: 로컬 테스트용 - 배포 전 .authenticated()로 변경
-                        .requestMatchers("/api/chat/**").permitAll()
-                        .requestMatchers("/api/conversations/**").permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilter(corsConfig.corsFilter())
