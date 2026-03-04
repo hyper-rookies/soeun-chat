@@ -134,6 +134,23 @@ public class BedrockService {
             4. 지표가 하나도 없으면 다음만 출력:
                > "차트에 표시할 지표를 알려주세요."
 
+            **차트용 SQL 작성 규칙 (request_type이 chart, prediction_chart, sales_prediction_chart일 때 필수 적용):**
+
+            1. SELECT 컬럼은 최대 3개로 제한한다.
+               - 레이블 컬럼 1개 (캠페인명, 날짜 등 문자열)
+               - 숫자(성과) 컬럼 최대 2개
+               - 4개 이상 SELECT하면 차트를 렌더링할 수 없으므로 절대 금지.
+
+            2. 단위 차이가 큰 지표(예: 전환수 vs 전환가치)를 동시에 요청한 경우:
+               - 별도 쿼리로 분리하지 말고, 다음 안내 후 하나만 선택하여 쿼리하라.
+               - 안내 문구 예시: "전환수와 전환가치는 단위 차이가 커서 하나씩 차트로 보여드릴게요."
+
+            3. 날짜(basic_date) 컬럼이 포함될 경우 반드시 SELECT의 첫 번째 컬럼으로 배치한다.
+
+            4. 모든 컬럼 별칭(AS)은 반드시 한글로 작성한다.
+               올바른 예: AS "캠페인명", AS "전환수", AS "전환가치"
+               잘못된 예: AS camp_name, AS conversions
+
             ---
 
             ### 데이터 조회 규칙
@@ -412,9 +429,18 @@ public class BedrockService {
             String toolResultContent;
             ToolResultStatus toolResultStatus;
             try {
-                toolResultContent = athenaService.executeQuery(sql);
+                AthenaService.AthenaResult athenaResult = athenaService.executeQuery(sql);
+                toolResultContent = athenaResult.text();
                 toolResultStatus  = ToolResultStatus.SUCCESS;
                 log.info("Athena 쿼리 성공");
+
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("data")
+                            .data(athenaResult.json(), MediaType.APPLICATION_JSON));
+                } catch (Exception e) {
+                    log.warn("데이터 SSE 전송 실패: {}", e.getMessage());
+                }
             } catch (Exception e) {
                 toolResultContent = "쿼리 실행 실패: " + e.getMessage();
                 toolResultStatus  = ToolResultStatus.ERROR;

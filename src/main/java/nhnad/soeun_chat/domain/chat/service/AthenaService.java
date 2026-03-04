@@ -25,11 +25,15 @@ public class AthenaService {
 
     private final AthenaClient athenaClient;
 
-    public String executeQuery(String sql) {
+    public record AthenaResult(String text, String json) {}
+
+    public AthenaResult executeQuery(String sql) {
         try {
             String queryExecutionId = startQuery(sql);
             waitForCompletion(queryExecutionId);
-            return fetchResults(queryExecutionId);
+            String text = fetchResults(queryExecutionId);
+            String json = fetchResultsAsJson(queryExecutionId);
+            return new AthenaResult(text, json);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new InternalServerException(ErrorCode.ATHENA_QUERY_FAILED);
@@ -97,5 +101,48 @@ public class AthenaService {
                     return sb.append("}").toString();
                 })
                 .collect(Collectors.joining("\n"));
+    }
+
+    private String fetchResultsAsJson(String queryExecutionId) {
+        GetQueryResultsResponse response = athenaClient.getQueryResults(
+                GetQueryResultsRequest.builder()
+                        .queryExecutionId(queryExecutionId)
+                        .build());
+
+        List<Row> rows = response.resultSet().rows();
+        if (rows.size() <= 1) return "[]";
+
+        List<String> headers = rows.get(0).data().stream()
+                .map(Datum::varCharValue)
+                .toList();
+
+        return rows.subList(1, rows.size()).stream()
+                .map(row -> {
+                    List<String> values = row.data().stream()
+                            .map(d -> d.varCharValue() != null ? d.varCharValue() : "")
+                            .toList();
+                    StringBuilder obj = new StringBuilder("{");
+                    for (int i = 0; i < headers.size(); i++) {
+                        if (i > 0) obj.append(",");
+                        String key = headers.get(i).replace("\"", "\\\"");
+                        String raw = i < values.size() ? values.get(i) : "";
+                        obj.append("\"").append(key).append("\":").append(toJsonValue(raw));
+                    }
+                    return obj.append("}").toString();
+                })
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static String toJsonValue(String value) {
+        if (value == null || value.isEmpty()) return "null";
+        try {
+            Long.parseLong(value);
+            return value;
+        } catch (NumberFormatException ignored) {}
+        try {
+            Double.parseDouble(value);
+            return value;
+        } catch (NumberFormatException ignored) {}
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 }
