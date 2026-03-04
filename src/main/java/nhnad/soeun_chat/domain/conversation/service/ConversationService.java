@@ -29,7 +29,7 @@ public class ConversationService {
     public ConversationResponse createConversation(String userId, String title) {
         String conversationId = UUID.randomUUID().toString();
         String effectiveTitle = (title != null && !title.isBlank()) ? title : "새 대화";
-        String now = Instant.now().toString();
+        long now = Instant.now().toEpochMilli();
 
         conversationRepository.save(conversationId, userId, effectiveTitle);
         log.info("대화 생성 완료 - conversationId: {}", conversationId);
@@ -38,11 +38,12 @@ public class ConversationService {
     }
 
     public List<ConversationSummary> getConversations(String userId) {
+        long now = Instant.now().toEpochMilli();
         return conversationRepository.findByUserId(userId).stream()
                 .map(item -> new ConversationSummary(
                         attr(item, "conversationId"),
                         attrOrDefault(item, "title", "새 대화"),
-                        attr(item, "updatedAt")
+                        attrNOrDefault(item, "updatedAt", now)
                 ))
                 .toList();
     }
@@ -52,6 +53,8 @@ public class ConversationService {
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.CONVERSATION_NOT_FOUND));
 
         checkOwner(item, userId, conversationId);
+
+        long now = Instant.now().toEpochMilli();
 
         List<MessageItem> messages = messageRepository.findByConversationId(conversationId).stream()
                 .map(msg -> new MessageItem(
@@ -65,10 +68,20 @@ public class ConversationService {
         return new ConversationResponse(
                 attr(item, "conversationId"),
                 attrOrDefault(item, "title", "새 대화"),
-                attr(item, "createdAt"),
-                attr(item, "updatedAt"),
+                attrNOrDefault(item, "createdAt", now),
+                attrNOrDefault(item, "updatedAt", now),
                 messages
         );
+    }
+
+    public void updateTitle(String conversationId, String title) {
+        conversationRepository.updateTitle(conversationId, title);
+        log.info("대화 제목 업데이트 - conversationId: {}, title: {}", conversationId, title);
+    }
+
+    public void updateUpdatedAt(String conversationId, long updatedAt) {
+        conversationRepository.updateUpdatedAt(conversationId, updatedAt);
+        log.debug("대화 updatedAt 업데이트 - conversationId: {}", conversationId);
     }
 
     public void deleteConversation(String userId, String conversationId) {
@@ -98,5 +111,13 @@ public class ConversationService {
     private String attrOrDefault(Map<String, AttributeValue> item, String key, String defaultValue) {
         AttributeValue v = item.get(key);
         return (v != null && v.s() != null) ? v.s() : defaultValue;
+    }
+
+    private Long attrNOrDefault(Map<String, AttributeValue> item, String key, Long defaultValue) {
+        AttributeValue v = item.get(key);
+        if (v != null && v.n() != null) {
+            return Long.parseLong(v.n());
+        }
+        return defaultValue;
     }
 }

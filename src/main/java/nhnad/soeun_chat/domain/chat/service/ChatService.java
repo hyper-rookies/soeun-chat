@@ -5,11 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import nhnad.soeun_chat.domain.chat.dto.ChatMessage;
 import nhnad.soeun_chat.domain.chat.repository.ConversationRepository;
 import nhnad.soeun_chat.domain.chat.repository.MessageRepository;
+import nhnad.soeun_chat.domain.conversation.service.ConversationService;
 import nhnad.soeun_chat.global.exception.BusinessException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Instant;
 import java.util.List;
 
 @Slf4j
@@ -20,6 +22,7 @@ public class ChatService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final BedrockService bedrockService;
+    private final ConversationService conversationService;
 
     @Async("chatExecutor")
     public void processChat(SseEmitter emitter,
@@ -44,9 +47,18 @@ public class ChatService {
             String fullAnswer = bedrockService.runAgenticLoop(emitter, userMessage, history);
 
             // 4. DynamoDB에 대화 기록 저장
+            boolean isFirstMessage = history.isEmpty();
             messageRepository.save(conversationId, "user", userMessage);
             messageRepository.save(conversationId, "assistant", fullAnswer);
-            conversationRepository.updateTimestamp(conversationId);
+            conversationService.updateUpdatedAt(conversationId, Instant.now().toEpochMilli());
+
+            // 5. 첫 메시지이면 사용자 메시지 앞 20자로 제목 자동 생성
+            if (isFirstMessage) {
+                String autoTitle = userMessage.length() > 20
+                        ? userMessage.substring(0, 20) + "..."
+                        : userMessage;
+                conversationService.updateTitle(conversationId, autoTitle);
+            }
 
             emitter.send(SseEmitter.event().name("done").data("[DONE]"));
             emitter.complete();

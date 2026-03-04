@@ -49,12 +49,12 @@ public class ConversationRepository {
     }
 
     public void save(String conversationId, String userId, String title) {
-        String now = Instant.now().toString();
+        long now = Instant.now().toEpochMilli();
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("conversationId", AttributeValue.fromS(conversationId));
         item.put("userId", AttributeValue.fromS(userId != null ? userId : "anonymous"));
-        item.put("createdAt", AttributeValue.fromS(now));
-        item.put("updatedAt", AttributeValue.fromS(now));
+        item.put("createdAt", AttributeValue.fromN(String.valueOf(now)));
+        item.put("updatedAt", AttributeValue.fromN(String.valueOf(now)));
         if (title != null && !title.isBlank()) {
             item.put("title", AttributeValue.fromS(title));
         }
@@ -74,13 +74,23 @@ public class ConversationRepository {
         log.info("대화 삭제 - conversationId: {}", conversationId);
     }
 
-    public void updateTimestamp(String conversationId) {
+    public void updateTitle(String conversationId, String title) {
+        dynamoDbClient.updateItem(UpdateItemRequest.builder()
+                .tableName(TABLE_NAME)
+                .key(Map.of("conversationId", AttributeValue.fromS(conversationId)))
+                .updateExpression("SET title = :title")
+                .expressionAttributeValues(Map.of(":title", AttributeValue.fromS(title)))
+                .build());
+        log.debug("대화 제목 갱신 - conversationId: {}, title: {}", conversationId, title);
+    }
+
+    public void updateUpdatedAt(String conversationId, long updatedAt) {
         dynamoDbClient.updateItem(UpdateItemRequest.builder()
                 .tableName(TABLE_NAME)
                 .key(Map.of("conversationId", AttributeValue.fromS(conversationId)))
                 .updateExpression("SET updatedAt = :updatedAt")
-                .expressionAttributeValues(Map.of(":updatedAt", AttributeValue.fromS(Instant.now().toString())))
+                .expressionAttributeValues(Map.of(":updatedAt", AttributeValue.fromN(String.valueOf(updatedAt))))
                 .build());
-        log.debug("대화 타임스탬프 갱신 - conversationId: {}", conversationId);
+        log.debug("대화 updatedAt 갱신 - conversationId: {}, updatedAt: {}", conversationId, updatedAt);
     }
 }

@@ -5,8 +5,8 @@ import java.util.List;
 public record ConversationResponse(
         String conversationId,
         String title,
-        String createdAt,
-        String updatedAt,
+        Long createdAt,
+        Long updatedAt,
         List<MessageItem> messages
 ) {
 }
