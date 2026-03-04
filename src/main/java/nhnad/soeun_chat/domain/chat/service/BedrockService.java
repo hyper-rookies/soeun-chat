@@ -7,6 +7,7 @@ import nhnad.soeun_chat.domain.chat.dto.ChatMessage;
 import nhnad.soeun_chat.global.error.ErrorCode;
 import nhnad.soeun_chat.global.exception.InternalServerException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import software.amazon.awssdk.core.document.Document;
@@ -65,7 +66,7 @@ public class BedrockService {
             - 데이터베이스명을 명시하세요: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
             - 항상 파티션 컬럼(year, month, day)을 WHERE 조건에 포함하세요.
             - ★중요(타입 주의)★: 파티션 컬럼은 VARCHAR입니다. YEAR(), MONTH() 등 BIGINT를 반환하는 함수와 직접 비교하면 TYPE_MISMATCH 에러가 발생합니다. 반드시 CAST를 사용하거나 문자열 포맷팅으로 비교하세요.
-            - 날짜 필터가 없으면 최근 30일 기준으로 작성하세요. (추천 조건식 예시: DATE(concat(year, '-', month, '-', day)) >= CURRENT_DATE - INTERVAL '30' DAY)
+            - 날짜 필터가 없으면 Google은 year='2026' AND month='02' AND day='01', Kakao는 year='2022' AND month='10' AND day='13' 조건을 사용하세요. CURRENT_DATE 사용 금지.
             - 두 테이블이 모두 필요하면 UNION ALL을 사용하세요.
             - ★중요(정렬 규칙)★: UNION ALL을 사용할 때, 개별 SELECT 문 안에는 절대 ORDER BY를 사용하지 마세요. 정렬이 필요하다면 서브쿼리로 감싸거나 쿼리 맨 마지막에 한 번만 작성하세요.
             - ★중요(별칭 규칙)★: 컬럼 별칭(AS 뒤)에 한글이나 특수문자를 사용할 때는 반드시 큰따옴표로 감싸세요. 예: AS "기기", AS "노출수", AS "클릭수". 큰따옴표 없이 한글 별칭을 쓰면 Athena에서 파싱 에러가 발생합니다.
@@ -77,6 +78,11 @@ public class BedrockService {
             사용자의 자연어 질문을 분석하여 필요한 SQL 쿼리를 생성하고,
             execute_athena_query 도구를 호출하여 데이터를 조회한 후,
             분석 결과를 친절하게 설명하세요.
+
+            [데이터 범위]
+            현재 Google 광고 데이터는 2026-02-01 하루치만 존재한다.
+            현재 Kakao 광고 데이터는 2022-10-13 하루치만 존재한다.
+            날짜를 지정하지 않으면 Google은 2026-02-01, Kakao는 2022-10-13 기준으로 조회하라.
 
             ### 요청 타입 판별 규칙 (필수)
 
@@ -160,25 +166,59 @@ public class BedrockService {
             5. UNION ALL 사용 시 ORDER BY는 서브쿼리나 맨 마지막에만
 
             **날짜 처리:**
-            - 사용자 입력 "기간:"에 있는 startDate/endDate를 그대로 사용
-            - DATE_SUB, CURRENT_DATE 등 절대 사용하지 않음
-            - basic_date BETWEEN startDate AND endDate 형식 사용
+            - 사용자가 날짜를 명시한 경우: 명시된 기간을 파티션 조건(year, month, day)으로 변환하여 사용
+              (예: year='2026' AND month='02' AND day='01')
+            - 사용자가 날짜를 명시하지 않은 경우("최근", "요즘", 날짜 없음):
+              Google → year='2026' AND month='02' AND day='01'
+              Kakao  → year='2022' AND month='10' AND day='13'
+            - CURRENT_DATE 사용 금지. 반드시 위의 실제 데이터 날짜를 파티션 조건으로 사용할 것
 
             ---
 
             ### 답변 규칙
 
             **데이터를 성공적으로 조회했을 때:**
+            
+            답변을 보내기 전 반드시 생각할 것. 
+            1. 마크다운 포맷 사용하여 정리: 정리 제목(##), 굵게(**), 줄바꿈(\\n)
+            2. 제목과 소제목 선정 후 적절한 헤딩 붙임.
+          
 
+            답변을 보내면서 생각할 것
             1. 사용자 질문에 정확하고 친절하게 답변
             2. 핵심 지표를 강조 (굵게 표현 또는 숫자 강조)
             3. 인사이트 제공 (단순 수치가 아닌 의미 있는 분석)
-            4. 마크다운 포맷 사용: 제목(##), 굵게(**), 줄바꿈(\\n)
-            5. 가독성을 위해 구간마다 공백 추가
+            4. 제목/소제목 좌우에는 줄바꿈 추가. 
+            5. 여러가지를 리스트로 전송 (리스트 항목(-))또는 번호가 붙은 항목 (1., 2., 3.) 좌우에는 줄바꿈 추가.
+
+            **마크다운 헤딩/리스트 규칙 (CRITICAL):**
+            - ## 또는 ### 기호 뒤에 반드시 공백 1개를 추가하라 (올바른 예: ## 제목, ### 소제목)
+            - ## 또는 ### 기호 뒤에 공백 없이 텍스트를 바로 붙이는 것은 절대 금지 (잘못된 예: ##제목, ###소제목)
+            - 헤딩(##, ###) 위와 아래에는 반드시 빈 줄(\\n\\n)을 추가하라.
+            - 절대로 헤딩을 본문 끝에 바로 붙이지 말 것 (예: "분석### 헤딩" 금지)
+            - ## 섹션 제목 바로 뒤에 번호(1., 2., 3.)나 텍스트를 절대 붙이지 말 것.
+              반드시 빈 줄(\\n\\n) 후에 ### 1. 소제목을 시작하라.
+              잘못된 예: ## 💡 주요 인사이트1. 비용 효율성
+              올바른 예: ## 💡 주요 인사이트\\n\\n### 1. 비용 효율성
+            - 리스트 항목은 반드시 '\\n- 내용' 형식으로 작성하라.
+              올바른 예: \\n- CTR: 6.65%\\n- 클릭수: 4,692회
+              잘못된 예: -CTR: 6.65%-클릭수: 4,692회
+              리스트 항목 사이에는 반드시 줄바꿈이 있어야 하며, '-' 뒤에는 반드시 공백 1개를 추가하라.
+            - 번호가 있는 모든 항목(1., 2., 3. 등)은 예외 없이 ### 소제목으로 작성하라.
+              올바른 예:
+                ### 1. 모바일 성과
+                ### 2. PC 성과
+              잘못된 예: '1. 모바일성과', '2.PC 성과' (### 없이 숫자만)
+              반드시 모든 번호 항목에 ### 을 붙여야 하며, 하나라도 빠뜨리면 안 된다.
+            - 주요 섹션 사이에 --- 구분선을 추가하여 가독성을 높여라.
+              예: 핵심 지표 섹션과 인사이트 섹션 사이, 인사이트와 개선제안 사이
+            - 지표를 나열할 때 콜론(:) 뒤에 반드시 공백 1개를 추가하라.
+              잘못된 예: 총 클릭수:4,692회
+              올바른 예: 총 클릭수: 4,692회
 
             **예시 답변:**
             ```
-            지난주 광고 성과를 분석한 결과입니다.\\n\\n## 📊 주요 지표\\n- **총 노출수**: 1,234,567회\\n- **총 클릭수**: 45,678회\\n- **평균 CTR**: 3.7%\\n\\n## 💡 인사이트\\n지난주 클릭수가 전전주 대비 15% 증가했습니다.
+            ## 📊 전체 성과 요약\\n\\n- 총 노출수: 70,534회\\n- 총 클릭수: 4,692회\\n- 평균 CTR: 6.65%\\n\\n---\\n\\n### 1. 모바일 성과\\n\\n- 클릭 비중: 65.2%\\n- CTR: 6.73%\\n\\n### 2. PC 성과\\n\\n- 클릭 비중: 33.8%\\n- CTR: 6.63%\\n\\n---\\n\\n## 💡 주요 인사이트\\n\\n### 1. 초효율적인 광고 운영\\n\\n- 매우 낮은 광고비 대비 높은 전환가치 달성\\n\\n### 2. 모바일 중심 성과\\n\\n- 전체 클릭의 65.2%가 모바일에서 발생
             ```
 
             ---
@@ -186,8 +226,9 @@ public class BedrockService {
             ### 에러 처리 규칙
 
             **1. 데이터가 없을 때:**
-            - 다음만 출력: "해당 데이터는 조회 불가능합니다."
-            - 추가 설명 절대 금지
+            - 최근 30일 조회 결과가 없으면 → 최근 90일로 execute_athena_query 재시도
+            - 90일도 없으면 → 날짜 조건 없이 전체 데이터로 execute_athena_query 재시도 (LIMIT 50)
+            - 전체 범위도 없으면: "해당 기간에 조회된 데이터가 없습니다. 다른 날짜 범위를 지정해보세요." 출력
 
             **2. 광고 무관 질문:**
             - 도구를 호출하지 않고 정중하게 안내
@@ -217,6 +258,7 @@ public class BedrockService {
     private static class IterationState {
         final StringBuilder text      = new StringBuilder();
         final StringBuilder inputJson = new StringBuilder();
+        final StringBuilder sseBuffer = new StringBuilder();
         String toolUseId  = null;
         String toolName   = null;
         String stopReason = null;
@@ -259,12 +301,36 @@ public class BedrockService {
                             .onContentBlockDelta(event -> {
                                 ContentBlockDelta delta = event.delta();
                                 if (delta.text() != null && !delta.text().isEmpty()) {
-                                    state.text.append(delta.text());
-                                    fullAnswer.append(delta.text());
-                                    try {
-                                        emitter.send(SseEmitter.event().data(delta.text()));
-                                    } catch (Exception e) {
-                                        log.warn("SSE 전송 실패: {}", e.getMessage());
+                                    String deltaText = delta.text();
+
+                                    // 헤딩/리스트 시작 청크가 오면 앞에 줄바꿈 보장
+                                    boolean isMarkdownStart = deltaText.contains("##")
+                                            || deltaText.startsWith("-")
+                                            || deltaText.startsWith("*");
+                                    if (isMarkdownStart && state.sseBuffer.length() > 0
+                                            && !state.sseBuffer.toString().endsWith("\n")) {
+                                        state.sseBuffer.append("\n");
+                                    }
+
+                                    state.text.append(deltaText);
+                                    fullAnswer.append(deltaText);
+                                    state.sseBuffer.append(deltaText);
+
+                                    String buf = state.sseBuffer.toString();
+                                    char last = buf.charAt(buf.length() - 1);
+                                    boolean shouldFlush = last == ' ' || last == '\n'
+                                            || last == '.' || last == '!' || last == '?'
+                                            || last == ',' || last == '\u3002' // 。
+                                            || deltaText.contains("##")
+                                            || state.sseBuffer.length() >= 20;
+                                    if (shouldFlush) {
+                                        try {
+                                            String toSend = buf.replaceAll("(#{1,3})([^\\s#])", "$1 $2");
+                                            emitter.send(SseEmitter.event().data(toSend, MediaType.TEXT_PLAIN));
+                                        } catch (Exception e) {
+                                            log.warn("SSE 전송 실패: {}", e.getMessage());
+                                        }
+                                        state.sseBuffer.setLength(0);
                                     }
                                 } else if (delta.toolUse() != null && delta.toolUse().input() != null) {
                                     state.inputJson.append(delta.toolUse().input());
@@ -293,6 +359,17 @@ public class BedrockService {
             } catch (ExecutionException e) {
                 log.error("Bedrock 스트리밍 실패: {}", e.getMessage());
                 throw new InternalServerException(ErrorCode.CHAT_PROCESSING_ERROR);
+            }
+
+            // 스트림 종료 후 버퍼에 남은 내용 flush
+            if (state.sseBuffer.length() > 0) {
+                try {
+                    String toSend = state.sseBuffer.toString().replaceAll("(#{1,3})([^\\s#])", "$1 $2");
+                    emitter.send(SseEmitter.event().data(toSend, MediaType.TEXT_PLAIN));
+                } catch (Exception e) {
+                    log.warn("SSE 잔여 버퍼 전송 실패: {}", e.getMessage());
+                }
+                state.sseBuffer.setLength(0);
             }
 
             // Parse SQL from accumulated tool input JSON
