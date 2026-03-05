@@ -46,9 +46,10 @@ public class ReportService {
     private final ObjectMapper objectMapper;
 
     public ReportResponse generateReport(String userId, ReportRequest request) {
-        String today = LocalDate.now().format(DATE_FORMAT);
+        LocalDate now = LocalDate.now();
+        String today = now.format(DATE_FORMAT);
         String conversationId = "report_" + today;
-        String reportTitle = "주간 자동 리포트 " + today;
+        String reportTitle = generateReportTitle(now);
 
         log.info("자동 리포트 생성 시작 - conversationId: {}, userId: {}, reportType: {}", conversationId, userId, request.reportType());
 
@@ -124,6 +125,12 @@ public class ReportService {
             String shareToken = shareService.generateSystemShareToken(conversationId);
             return new ReportSummary(conversationId, title, createdAt, shareToken);
         }).toList();
+    }
+
+    private String generateReportTitle(LocalDate date) {
+        int weekOfMonth = (date.getDayOfMonth() - 1) / 7 + 1;
+        return String.format("%d년 %d월 %d주차 주간 리포트",
+                date.getYear(), date.getMonthValue(), weekOfMonth);
     }
 
     private String buildPrompt(String reportType) {
