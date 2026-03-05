@@ -44,6 +44,23 @@ public class ConversationRepository {
         return response.items();
     }
 
+    public List<Map<String, AttributeValue>> findReportsByUserId(String userId) {
+        // GSI: userId-updatedAt-index, conversationId prefix 필터로 리포트만 추출
+        QueryResponse response = dynamoDbClient.query(QueryRequest.builder()
+                .tableName(TABLE_NAME)
+                .indexName("userId-updatedAt-index")
+                .keyConditionExpression("userId = :uid")
+                .filterExpression("begins_with(conversationId, :prefix)")
+                .expressionAttributeValues(Map.of(
+                        ":uid", AttributeValue.fromS(userId),
+                        ":prefix", AttributeValue.fromS("report_")
+                ))
+                .scanIndexForward(false)
+                .build());
+        log.debug("리포트 목록 조회 - userId: {}, count: {}", userId, response.count());
+        return response.items();
+    }
+
     public void save(String conversationId, String userId) {
         save(conversationId, userId, null);
     }
@@ -64,6 +81,26 @@ public class ConversationRepository {
                 .item(item)
                 .build());
         log.info("대화 생성 - conversationId: {}, userId: {}", conversationId, userId);
+    }
+
+    /**
+     * 리포트 대화 저장: messages는 S3에 위임하고 reportS3Key만 기록
+     */
+    public void saveWithS3Key(String conversationId, String userId, String title, String reportS3Key) {
+        long now = Instant.now().toEpochMilli();
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("conversationId", AttributeValue.fromS(conversationId));
+        item.put("userId", AttributeValue.fromS(userId != null ? userId : "system"));
+        item.put("title", AttributeValue.fromS(title));
+        item.put("createdAt", AttributeValue.fromN(String.valueOf(now)));
+        item.put("updatedAt", AttributeValue.fromN(String.valueOf(now)));
+        item.put("reportS3Key", AttributeValue.fromS(reportS3Key));
+
+        dynamoDbClient.putItem(PutItemRequest.builder()
+                .tableName(TABLE_NAME)
+                .item(item)
+                .build());
+        log.info("리포트 대화 생성 - conversationId: {}, userId: {}, s3Key: {}", conversationId, userId, reportS3Key);
     }
 
     public void delete(String conversationId) {

@@ -41,6 +41,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/share/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/chat/report").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/chat/reports").authenticated()
                         .anyRequest().authenticated()
                 )
                 .addFilter(corsConfig.corsFilter())
