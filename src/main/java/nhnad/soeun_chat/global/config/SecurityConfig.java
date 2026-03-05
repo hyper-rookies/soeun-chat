@@ -40,6 +40,7 @@ public class SecurityConfig {
                         .requestMatchers("/health").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/share/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/chat/report").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilter(corsConfig.corsFilter())

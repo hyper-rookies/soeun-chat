@@ -36,6 +36,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ShareService {
 
+    private static final String SYSTEM_USER_ID = "system";
+
     @Value("${share.jwt-secret}")
     private String jwtSecret;
 
@@ -48,6 +50,21 @@ public class ShareService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final ObjectMapper objectMapper;
+
+    public String generateSystemShareToken(String conversationId) {
+        Instant expiry = Instant.now().plus(expirationDays, ChronoUnit.DAYS);
+
+        String token = Jwts.builder()
+                .subject(conversationId)
+                .claim("userId", SYSTEM_USER_ID)
+                .issuedAt(new Date())
+                .expiration(Date.from(expiry))
+                .signWith(getSigningKey())
+                .compact();
+
+        log.info("시스템 공유 토큰 생성 - conversationId: {}", conversationId);
+        return token;
+    }
 
     public ShareCreateResponse generateShareToken(String conversationId, String userId) {
         Map<String, AttributeValue> item = conversationRepository.findById(conversationId)
