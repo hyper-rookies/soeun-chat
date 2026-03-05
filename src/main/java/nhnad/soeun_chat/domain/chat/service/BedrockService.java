@@ -36,23 +36,28 @@ public class BedrockService {
             당신은 AWS Athena SQL 전문가입니다. 사용자의 자연어 질문을 Athena SQL로 변환하세요.
             반드시 순수 SQL만 반환하세요. 설명, 한글 텍스트, 마크다운 코드블록은 절대 포함하지 마세요.
 
-            [google_ad_performance 테이블]
-            - 파티션: year, month, day (모두 VARCHAR 타입)
+            [데이터 범위]
+            - 기간: 2026-02-01 ~ 2026-02-07 (7일치)
+            - basic_date 컬럼은 BIGINT 타입 (예: 20260201)
+
+            [se_report_db.google_ad_performance 테이블]
+            - 파티션: year, month_p, day (모두 VARCHAR 타입)
             - 주요 컬럼: camp_id, camp_name, camp_advertising_channel_type, camp_status,
                           agroup_id, agroup_name, keyword_id, keyword_text, keyword_match_type,
-                          device, network_type, basic_date, adv_id, date, quarter, day_of_week, week
+                          basic_date (BIGINT, 예: 20260201), adv_id, device, network_type
             - 성과 컬럼(bigint): impressions, clicks, video_views, all_conversions, conversions
-            - 성과 컬럼(double): cost_micros, ctr, average_cpc, all_conversions_value,
-                                  conversions_value, value_per_conversion, cost_per_conversion,
-                                  conversions_from_interactions_rate,
+            - 성과 컬럼(double): cost_micros (마이크로 단위, 원화 변환: /1,000,000), ctr, average_cpc,
+                                  all_conversions_value, conversions_value, value_per_conversion,
+                                  cost_per_conversion, conversions_from_interactions_rate,
                                   video_quartile_p25_rate, video_quartile_p50_rate,
                                   video_quartile_p75_rate, video_quartile_p100_rate
 
-            [kakao_ad_performance 테이블]
-            - 파티션: year, month, day (모두 VARCHAR 타입)
+            [se_report_db.kakao_ad_performance 테이블]
+            - 파티션: year, month_p, day (모두 VARCHAR 타입)
             - 주요 컬럼: kwd_id, kwd_name, kwd_config, kwd_url, kwd_bid_type, kwd_bid_amount,
                           agroup_id, agroup_name, camp_id, camp_name, camp_type,
-                          biz_id, biz_name, basic_date, adv_id
+                          biz_id, biz_name, lu_pc, lu_mobile,
+                          basic_date (BIGINT, 예: 20260201), adv_id
             - 성과 컬럼(bigint): imp, click, rimp, rank,
                                   conv_cmpt_reg_1d, conv_cmpt_reg_7d,
                                   conv_view_cart_1d, conv_view_cart_7d,
@@ -60,13 +65,17 @@ public class BedrockService {
                                   conv_participation_1d, conv_participation_7d,
                                   conv_signup_1d, conv_signup_7d,
                                   conv_app_install_1d, conv_app_install_7d
-            - 성과 컬럼(double): spending, ctr, ppc, conv_purchase_p_1d, conv_purchase_p_7d
+            - 성과 컬럼(double): spending (비용, 원화), ctr, ppc, conv_purchase_p_1d, conv_purchase_p_7d
 
             쿼리 작성 규칙: Athena에서 오류가 발생하지 않도록 문법 규칙에 맞게 작성하세요.
             - 데이터베이스명을 명시하세요: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
-            - 항상 파티션 컬럼(year, month, day)을 WHERE 조건에 포함하세요.
+            - 항상 파티션 컬럼(year, month_p, day)을 WHERE 조건에 포함하세요. 파티션 컬럼명이 month가 아닌 month_p임에 주의하세요.
             - ★중요(타입 주의)★: 파티션 컬럼은 VARCHAR입니다. YEAR(), MONTH() 등 BIGINT를 반환하는 함수와 직접 비교하면 TYPE_MISMATCH 에러가 발생합니다. 반드시 CAST를 사용하거나 문자열 포맷팅으로 비교하세요.
-            - 날짜 필터가 없으면 Google은 year='2026' AND month='02' AND day='01', Kakao는 year='2022' AND month='10' AND day='13' 조건을 사용하세요. CURRENT_DATE 사용 금지.
+            - 날짜 필터가 없으면 year='2026' AND month_p='02' 조건을 사용하세요. CURRENT_DATE 사용 금지.
+            - basic_date는 BIGINT이므로 범위 조건: basic_date BETWEEN 20260201 AND 20260207
+            - Google 비용 환산: cost_micros / 1000000.0 AS cost_krw
+            - CTR 계산: ROUND(clicks * 100.0 / NULLIF(impressions, 0), 2)
+            - CPC 계산 (Google): ROUND(cost_micros / 1000000.0 / NULLIF(clicks, 0), 0)
             - 두 테이블이 모두 필요하면 UNION ALL을 사용하세요.
             - ★중요(정렬 규칙)★: UNION ALL을 사용할 때, 개별 SELECT 문 안에는 절대 ORDER BY를 사용하지 마세요. 정렬이 필요하다면 서브쿼리로 감싸거나 쿼리 맨 마지막에 한 번만 작성하세요.
             - ★중요(별칭 규칙)★: 컬럼 별칭(AS 뒤)에 한글이나 특수문자를 사용할 때는 반드시 큰따옴표로 감싸세요. 예: AS "기기", AS "노출수", AS "클릭수". 큰따옴표 없이 한글 별칭을 쓰면 Athena에서 파싱 에러가 발생합니다.
@@ -80,9 +89,9 @@ public class BedrockService {
             분석 결과를 친절하게 설명하세요.
 
             [데이터 범위]
-            현재 Google 광고 데이터는 2026-02-01 하루치만 존재한다.
-            현재 Kakao 광고 데이터는 2022-10-13 하루치만 존재한다.
-            날짜를 지정하지 않으면 Google은 2026-02-01, Kakao는 2022-10-13 기준으로 조회하라.
+            현재 Google 및 Kakao 광고 데이터는 2026-02-01 ~ 2026-02-07 (7일치)가 존재한다.
+            날짜를 지정하지 않으면 전체 기간(2026-02-01 ~ 2026-02-07)을 기준으로 조회하라.
+            두 매체 비교 분석이 가능하며, UNION ALL을 활용하거나 각각 조회 후 결합하라.
 
             ### 요청 타입 판별 규칙 (필수)
 
@@ -91,7 +100,7 @@ public class BedrockService {
             **판별 순서 (우선순위):**
 
             1. sales_prediction_chart (최우선)
-               - "일별" AND "최근" AND "매출" 모두 포함
+               - "일별" AND "최근" AND "매출" 모두 포함       
                - 예: "최근 3달 일별 매출을 예측해줘"
 
             2. prediction_chart
@@ -157,38 +166,53 @@ public class BedrockService {
 
             **사용 가능한 테이블:**
 
-            [google_ad_performance 테이블]
-            - 파티션: year, month, day (모두 VARCHAR)
+            [se_report_db.google_ad_performance 테이블]
+            - 파티션: year, month_p, day (모두 VARCHAR)
             - 주요 컬럼: camp_id, camp_name, camp_advertising_channel_type, camp_status,
                           agroup_id, agroup_name, keyword_id, keyword_text, keyword_match_type,
-                          device, network_type, basic_date, adv_id, date, quarter, day_of_week, week
+                          basic_date (BIGINT, 예: 20260201), adv_id, device, network_type
             - 성과 컬럼: impressions, clicks, video_views, all_conversions, conversions (bigint)
-                         cost_micros, ctr, average_cpc, all_conversions_value,
-                         conversions_value, value_per_conversion, cost_per_conversion (double)
+                         cost_micros (마이크로 단위, 원화: /1,000,000), ctr, average_cpc,
+                         all_conversions_value, conversions_value, value_per_conversion,
+                         cost_per_conversion, conversions_from_interactions_rate (double)
 
-            [kakao_ad_performance 테이블]
-            - 파티션: year, month, day (모두 VARCHAR)
+            [se_report_db.kakao_ad_performance 테이블]
+            - 파티션: year, month_p, day (모두 VARCHAR)
             - 주요 컬럼: kwd_id, kwd_name, kwd_config, kwd_url, kwd_bid_type, kwd_bid_amount,
                           agroup_id, agroup_name, camp_id, camp_name, camp_type,
-                          biz_id, biz_name, basic_date, adv_id
+                          biz_id, biz_name, lu_pc, lu_mobile,
+                          basic_date (BIGINT, 예: 20260201), adv_id
             - 성과 컬럼: imp, click, rimp, rank (bigint)
-                         conv_purchase_1d, conv_purchase_7d, spending, ctr, ppc (double)
+                         conv_purchase_1d, conv_purchase_7d, spending (원화), ctr, ppc (double)
 
             **SQL 작성 규칙:**
 
             1. 데이터베이스 명시: se_report_db.google_ad_performance 또는 se_report_db.kakao_ad_performance
-            2. 파티션 컬럼(year, month, day)은 항상 WHERE 절에 포함
+            2. 파티션 컬럼(year, month_p, day)은 항상 WHERE 절에 포함. 파티션 컬럼명이 month가 아닌 month_p임에 주의
             3. 파티션 컬럼은 VARCHAR → CAST/문자열 포맷팅 필수 (YEAR(), MONTH() 함수 절대 금지)
-            4. 한글 별칭은 큰따옴표: AS "노출수", AS "클릭수"
-            5. UNION ALL 사용 시 ORDER BY는 서브쿼리나 맨 마지막에만
+            4. basic_date는 BIGINT → 범위 조건: basic_date BETWEEN 20260201 AND 20260207
+            5. Google 비용 환산: cost_micros / 1000000.0 AS cost_krw
+            6. CTR 계산: ROUND(clicks * 100.0 / NULLIF(impressions, 0), 2)
+            7. CPC 계산 (Google): ROUND(cost_micros / 1000000.0 / NULLIF(clicks, 0), 0)
+            8. 한글 별칭은 큰따옴표: AS "노출수", AS "클릭수"
+            9. UNION ALL 사용 시 ORDER BY는 서브쿼리나 맨 마지막에만
 
             **날짜 처리:**
-            - 사용자가 날짜를 명시한 경우: 명시된 기간을 파티션 조건(year, month, day)으로 변환하여 사용
-              (예: year='2026' AND month='02' AND day='01')
+            - 사용자가 날짜를 명시한 경우: 명시된 기간을 파티션 조건(year, month_p, day)으로 변환하여 사용
+              (예: year='2026' AND month_p='02' AND day='01')
             - 사용자가 날짜를 명시하지 않은 경우("최근", "요즘", 날짜 없음):
-              Google → year='2026' AND month='02' AND day='01'
-              Kakao  → year='2022' AND month='10' AND day='13'
+              Google 및 Kakao → year='2026' AND month_p='02' (전체 7일치)
+              또는 basic_date BETWEEN 20260201 AND 20260207
             - CURRENT_DATE 사용 금지. 반드시 위의 실제 데이터 날짜를 파티션 조건으로 사용할 것
+
+            **두 매체 비교 분석 예시 (UNION ALL):**
+            SELECT '구글' AS "매체", SUM(cost_micros) / 1000000.0 AS "비용(원)", SUM(clicks) AS "클릭수"
+            FROM se_report_db.google_ad_performance
+            WHERE year='2026' AND month_p='02'
+            UNION ALL
+            SELECT '카카오' AS "매체", SUM(spending) AS "비용(원)", SUM(click) AS "클릭수"
+            FROM se_report_db.kakao_ad_performance
+            WHERE year='2026' AND month_p='02'
 
             ---
 
@@ -295,10 +319,13 @@ public class BedrockService {
         return response.output().message().content().get(0).text().trim();
     }
 
-    public String runAgenticLoop(SseEmitter emitter, String userMessage, List<ChatMessage> history) {
+    public record AgenticLoopResult(String answer, String structuredDataJson) {}
+
+    public AgenticLoopResult runAgenticLoop(SseEmitter emitter, String userMessage, List<ChatMessage> history) {
         List<Message> messages = buildConverseMessages(userMessage, history);
         StringBuilder fullAnswer = new StringBuilder();
         ToolConfiguration toolConfig = buildToolConfiguration();
+        String lastStructuredDataJson = null;
 
         for (int iter = 0; iter < 5; iter++) {
             log.info("Agentic loop iteration {}", iter + 1);
@@ -343,7 +370,7 @@ public class BedrockService {
                                     if (shouldFlush) {
                                         try {
                                             String toSend = buf.replaceAll("(#{1,3})([^\\s#])", "$1 $2");
-                                            emitter.send(SseEmitter.event().data(toSend, MediaType.TEXT_PLAIN));
+                                            emitter.send(SseEmitter.event().name("message").data(toSend, MediaType.TEXT_PLAIN));
                                         } catch (Exception e) {
                                             log.warn("SSE 전송 실패: {}", e.getMessage());
                                         }
@@ -382,7 +409,7 @@ public class BedrockService {
             if (state.sseBuffer.length() > 0) {
                 try {
                     String toSend = state.sseBuffer.toString().replaceAll("(#{1,3})([^\\s#])", "$1 $2");
-                    emitter.send(SseEmitter.event().data(toSend, MediaType.TEXT_PLAIN));
+                    emitter.send(SseEmitter.event().name("message").data(toSend, MediaType.TEXT_PLAIN));
                 } catch (Exception e) {
                     log.warn("SSE 잔여 버퍼 전송 실패: {}", e.getMessage());
                 }
@@ -432,6 +459,7 @@ public class BedrockService {
                 AthenaService.AthenaResult athenaResult = athenaService.executeQuery(sql);
                 toolResultContent = athenaResult.text();
                 toolResultStatus  = ToolResultStatus.SUCCESS;
+                lastStructuredDataJson = athenaResult.json();
                 log.info("Athena 쿼리 성공");
 
                 try {
@@ -459,7 +487,7 @@ public class BedrockService {
                     .build());
         }
 
-        return fullAnswer.toString();
+        return new AgenticLoopResult(fullAnswer.toString(), lastStructuredDataJson);
     }
 
     private ToolConfiguration buildToolConfiguration() {

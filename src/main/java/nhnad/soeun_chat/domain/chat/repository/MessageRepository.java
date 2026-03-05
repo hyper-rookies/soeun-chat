@@ -74,13 +74,17 @@ public class MessageRepository {
         log.info("메시지 일괄 삭제 - conversationId: {}, count: {}", conversationId, items.size());
     }
 
-    public void save(String conversationId, String role, String content) {
+    public void save(String conversationId, String role, String content, String structuredDataJson) {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("messageId", AttributeValue.fromS(UUID.randomUUID().toString()));
         item.put("conversationId", AttributeValue.fromS(conversationId));
         item.put("role", AttributeValue.fromS(role));
         item.put("content", AttributeValue.fromS(content));
         item.put("createdAt", AttributeValue.fromS(Instant.now().toString()));
+
+        if (structuredDataJson != null && !structuredDataJson.isBlank() && !"[]".equals(structuredDataJson)) {
+            item.put("structuredData", AttributeValue.fromS(structuredDataJson));
+        }
 
         dynamoDbClient.putItem(PutItemRequest.builder()
                 .tableName(TABLE_NAME)

@@ -1,5 +1,7 @@
 package nhnad.soeun_chat.domain.conversation.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import nhnad.soeun_chat.domain.chat.repository.ConversationRepository;
@@ -25,6 +27,7 @@ public class ConversationService {
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
+    private final ObjectMapper objectMapper;
 
     public ConversationResponse createConversation(String userId, String title) {
         String conversationId = UUID.randomUUID().toString();
@@ -61,7 +64,8 @@ public class ConversationService {
                         attr(msg, "messageId"),
                         attr(msg, "role"),
                         attr(msg, "content"),
-                        attr(msg, "createdAt")
+                        attr(msg, "createdAt"),
+                        parseStructuredData(msg)
                 ))
                 .toList();
 
@@ -100,6 +104,17 @@ public class ConversationService {
         if (userId != null && !userId.equals(owner)) {
             log.warn("대화 접근 권한 없음 - conversationId: {}, userId: {}", conversationId, userId);
             throw new ForbiddenException();
+        }
+    }
+
+    private List<Object> parseStructuredData(Map<String, AttributeValue> msg) {
+        AttributeValue v = msg.get("structuredData");
+        if (v == null || v.s() == null) return null;
+        try {
+            return objectMapper.readValue(v.s(), new TypeReference<>() {});
+        } catch (Exception e) {
+            log.warn("structuredData 파싱 실패: {}", e.getMessage());
+            return null;
         }
     }
 

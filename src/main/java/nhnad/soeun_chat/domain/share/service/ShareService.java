@@ -1,5 +1,7 @@
 package nhnad.soeun_chat.domain.share.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -45,6 +47,7 @@ public class ShareService {
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
+    private final ObjectMapper objectMapper;
 
     public ShareCreateResponse generateShareToken(String conversationId, String userId) {
         Map<String, AttributeValue> item = conversationRepository.findById(conversationId)
@@ -87,7 +90,8 @@ public class ShareService {
                         attr(msg, "messageId"),
                         attr(msg, "role"),
                         attr(msg, "content"),
-                        attr(msg, "createdAt")
+                        attr(msg, "createdAt"),
+                        parseStructuredData(msg)
                 ))
                 .toList();
 
@@ -120,6 +124,17 @@ public class ShareService {
     private SecretKey getSigningKey() {
         byte[] keyBytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    private List<Object> parseStructuredData(Map<String, AttributeValue> msg) {
+        AttributeValue v = msg.get("structuredData");
+        if (v == null || v.s() == null) return null;
+        try {
+            return objectMapper.readValue(v.s(), new TypeReference<>() {});
+        } catch (Exception e) {
+            log.warn("structuredData 파싱 실패: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String attr(Map<String, AttributeValue> item, String key) {
