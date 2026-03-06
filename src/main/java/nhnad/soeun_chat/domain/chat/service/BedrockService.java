@@ -241,6 +241,18 @@ public class BedrockService {
            SUBSTR(CAST(basic_date AS VARCHAR), 5, 2) || '-' ||
            SUBSTR(CAST(basic_date AS VARCHAR), 7, 2) AS "날짜"
            WARNING: Raw basic_date selection will show "20,260,201" to users. This is FORBIDDEN.
+           
+            [CHART TYPE SELECTION GUIDE]
+            Choose chart type based on data characteristics:
+            - line  : 날짜/시간 축이 있는 추이 데이터 (일별, 주별 트렌드)
+            - bar   : 카테고리 간 비교 (캠페인별, 키워드별, 매체별 수치 비교)
+            - pie   : 전체 대비 비율/구성 (매체별 비중, 비율)
+            - table : 다수 컬럼의 상세 데이터 (3개 이상 지표 동시 표시)
+            
+            When responding after chart data retrieval:
+            1. Write your analysis text normally in Korean markdown
+            2. Do NOT describe the chart in text — the chart renders automatically from data
+            3. Keep analysis concise — the visual chart already shows the numbers
 
         ================================
         DATABASE SCHEMA
@@ -583,9 +595,12 @@ public class BedrockService {
                 log.info("Athena 쿼리 성공");
 
                 try {
+                    String chartType = detectChartType(userMessage, athenaResult.json());
+                    String dataPayload = "{\"chartType\":\"" + chartType + "\","
+                            + "\"data\":" + athenaResult.json() + "}";
                     emitter.send(SseEmitter.event()
                             .name("data")
-                            .data(athenaResult.json(), MediaType.APPLICATION_JSON));
+                            .data(dataPayload, MediaType.APPLICATION_JSON));
                 } catch (Exception e) {
                     log.warn("데이터 SSE 전송 실패: {}", e.getMessage());
                 }
@@ -608,6 +623,26 @@ public class BedrockService {
         }
 
         return new AgenticLoopResult(fullAnswer.toString(), lastStructuredDataJson);
+    }
+
+    private String detectChartType(String userMessage, String json) {
+        if (userMessage.matches(".*?(매체별|비중|비율|구성|점유율).*")) return "pie";
+        if (userMessage.matches(".*?(비교|순위|캠페인별|키워드별|상위|랭킹).*")) return "bar";
+        if (userMessage.matches(".*?(추이|트렌드|일별|변화|흐름|시계열).*")) return "line";
+
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            if (node.isArray() && node.size() > 0) {
+                com.fasterxml.jackson.databind.JsonNode first = node.get(0);
+                if (first.has("날짜") || first.has("date") || first.has("일자")) return "line";
+                if (first.size() == 2) return "pie";
+                return "bar";
+            }
+        } catch (Exception e) {
+            log.warn("차트 타입 감지 실패: {}", e.getMessage());
+        }
+
+        return "table";
     }
 
     private ToolConfiguration buildToolConfiguration() {
