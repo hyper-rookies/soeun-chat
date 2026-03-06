@@ -91,7 +91,11 @@ public class AthenaService {
         return rows.subList(1, rows.size()).stream()
                 .map(row -> {
                     List<String> values = row.data().stream()
-                            .map(Datum::varCharValue)
+                            .map(d -> {
+                                String v = d.varCharValue();
+                                // 마크다운 헤딩 오인 방지: # 기호 이스케이프
+                                return v != null ? v.replace("#", "\\#") : "";
+                            })
                             .toList();
                     StringBuilder sb = new StringBuilder("{");
                     for (int i = 0; i < headers.size(); i++) {
