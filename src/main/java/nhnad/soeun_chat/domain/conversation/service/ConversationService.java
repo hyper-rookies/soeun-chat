@@ -13,6 +13,7 @@ import nhnad.soeun_chat.domain.conversation.dto.MessageItem;
 import nhnad.soeun_chat.global.error.ErrorCode;
 import nhnad.soeun_chat.global.exception.EntityNotFoundException;
 import nhnad.soeun_chat.global.exception.ForbiddenException;
+import nhnad.soeun_chat.global.exception.InvalidValueException;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -89,6 +90,17 @@ public class ConversationService {
     public void updateTitle(String conversationId, String title) {
         conversationRepository.updateTitle(conversationId, title);
         log.info("대화 제목 업데이트 - conversationId: {}, title: {}", conversationId, title);
+    }
+
+    public void updateTitle(String conversationId, String userId, String title) {
+        if (title == null || title.isBlank()) {
+            throw new InvalidValueException();
+        }
+        Map<String, AttributeValue> item = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new EntityNotFoundException(ErrorCode.CONVERSATION_NOT_FOUND));
+        checkOwner(item, userId, conversationId);
+        conversationRepository.updateTitle(conversationId, title);
+        log.info("대화 제목 수정 - conversationId: {}, userId: {}, title: {}", conversationId, userId, title);
     }
 
     public void updateUpdatedAt(String conversationId, long updatedAt) {

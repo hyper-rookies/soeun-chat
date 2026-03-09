@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationResponse;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationSummary;
 import nhnad.soeun_chat.domain.conversation.dto.CreateConversationRequest;
+import nhnad.soeun_chat.domain.conversation.dto.UpdateTitleRequest;
 import nhnad.soeun_chat.domain.conversation.service.ConversationService;
 import nhnad.soeun_chat.global.response.ApiResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -45,6 +46,17 @@ public class ConversationController implements ConversationApi {
 
         log.info("대화 조회 - conversationId: {}, userId: {}", conversationId, userId);
         return ApiResponse.of(conversationService.getConversation(userId, conversationId));
+    }
+
+    @Override
+    public ApiResponse<Void> updateTitle(
+            @PathVariable String conversationId,
+            @RequestBody UpdateTitleRequest request,
+            @AuthenticationPrincipal String userId) {
+
+        log.info("대화 제목 수정 - conversationId: {}, userId: {}", conversationId, userId);
+        conversationService.updateTitle(conversationId, userId, request.title());
+        return ApiResponse.ok();
     }
 
     @Override

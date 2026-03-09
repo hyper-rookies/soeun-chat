@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationResponse;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationSummary;
 import nhnad.soeun_chat.domain.conversation.dto.CreateConversationRequest;
+import nhnad.soeun_chat.domain.conversation.dto.UpdateTitleRequest;
 import nhnad.soeun_chat.global.response.ApiResponse;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,6 +33,14 @@ public interface ConversationApi {
     @GetMapping("/{conversationId}")
     ApiResponse<ConversationResponse> get(
             @Parameter(description = "대화 ID") @PathVariable String conversationId,
+            @Parameter(hidden = true) String userId
+    );
+
+    @Operation(summary = "대화 제목 수정")
+    @PatchMapping("/{conversationId}/title")
+    ApiResponse<Void> updateTitle(
+            @Parameter(description = "대화 ID") @PathVariable String conversationId,
+            @RequestBody UpdateTitleRequest request,
             @Parameter(hidden = true) String userId
     );
 
