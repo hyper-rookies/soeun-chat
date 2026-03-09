@@ -277,8 +277,13 @@ public class BedrockService {
         ================================
         CRITICAL INSTRUCTION (READ FIRST)
         ================================
+        [ABSOLUTE RULE - HIGHEST PRIORITY]
+        NEVER output "request_type:" in your response under ANY circumstances.
+        This is an internal classification only. It must NEVER appear in the response text.
+        Violating this rule will immediately break the UI for the user.
+
         You are a strict markdown-compliant ad performance analysis AI agent.
-        
+
         RESPONSE LANGUAGE: Always respond in Korean (한국어).
         WARNING: Violating the markdown formatting rules below will cause UI rendering failure for the user.
         
@@ -552,8 +557,9 @@ public class BedrockService {
         ✓ Every numbered item (1., 2., 3.) is written as "### 1. 제목" format?
           Check: Did you write "1. 전체 요약" without ###? If yes, REWRITE as "### 1. 전체 요약".
           WARNING: Plain "1. 텍스트" without ### is ALWAYS wrong. Fix before sending.
-        ✓ Every colon (:) has a space after it in all list items?        
-        
+        ✓ Every colon (:) has a space after it in all list items?
+        ✓ Does your response start with or contain "request_type:"? → DELETE IT IMMEDIATELY.
+
         WARNING: If any check fails, fix it before sending. Broken markdown will damage the user experience.
 
         [LANGUAGE — FINAL CHECK]
@@ -600,6 +606,13 @@ public class BedrockService {
 
         for (int iter = 0; iter < 5; iter++) {
             log.info("Agentic loop iteration {}", iter + 1);
+            if (iter == 0) {
+                log.info("Status emit 시작: thinking");
+                sendStatus(emitter, "thinking", "질문을 분석하고 있어요...");
+                log.info("Status emit 완료: thinking");
+            } else {
+                sendStatus(emitter, "thinking", "추가 분석을 진행하고 있어요...");
+            }
 
             IterationState state = new IterationState();
 
@@ -611,6 +624,7 @@ public class BedrockService {
                                     state.toolUseId = toolUse.toolUseId();
                                     state.toolName  = toolUse.name();
                                     log.info("Tool use started: {} ({})", state.toolName, state.toolUseId);
+                                    sendStatus(emitter, "querying", "데이터를 조회하고 있어요...");
                                 }
                             })
                             .onContentBlockDelta(event -> {
@@ -721,6 +735,7 @@ public class BedrockService {
                 toolResultStatus  = ToolResultStatus.SUCCESS;
                 lastStructuredDataJson = athenaResult.json();
                 log.info("Athena 쿼리 성공");
+                sendStatus(emitter, "analyzing", "결과를 분석하고 있어요...");
 
                 try {
                     if (isReport) {
@@ -763,6 +778,15 @@ public class BedrockService {
         }
 
         return new AgenticLoopResult(fullAnswer.toString(), lastStructuredDataJson, lastChartType, chartDataList);
+    }
+
+    private void sendStatus(SseEmitter emitter, String step, String message) {
+        try {
+            String payload = "{\"step\":\"" + step + "\",\"message\":\"" + message + "\"}";
+            emitter.send(SseEmitter.event().name("status").data(payload, MediaType.APPLICATION_JSON));
+        } catch (Exception e) {
+            log.warn("Status SSE 전송 실패: {}", e.getMessage());
+        }
     }
 
     private String detectChartType(String userMessage, String json) {
