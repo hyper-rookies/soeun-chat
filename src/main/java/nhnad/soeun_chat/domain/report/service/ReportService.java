@@ -48,7 +48,7 @@ public class ReportService {
     public ReportResponse generateReport(String userId, ReportRequest request) {
         LocalDate now = LocalDate.now();
         String today = now.format(DATE_FORMAT);
-        String conversationId = "report_" + today;
+        String conversationId = "report_" + today + "_" + userId;
         String reportTitle = generateReportTitle(now);
 
         log.info("자동 리포트 생성 시작 - conversationId: {}, userId: {}, reportType: {}", conversationId, userId, request.reportType());
@@ -57,10 +57,10 @@ public class ReportService {
         String userMessage = buildPrompt(request.reportType());
         SseEmitter dummyEmitter = new SseEmitter(0L);
         BedrockService.AgenticLoopResult loopResult =
-                bedrockService.runAgenticLoop(dummyEmitter, userMessage, List.of());
+                bedrockService.runAgenticLoop(dummyEmitter, userMessage, List.of(), true);
 
         // 2. S3에 리포트 전체 내용 저장
-        String s3Key = "reports/" + conversationId + ".json";
+        String s3Key = "reports/report_" + today + "_" + userId + ".json";
         saveReportToS3(s3Key, conversationId, userId, reportTitle, userMessage, loopResult);
 
         // 3. DynamoDB에 메타데이터 + S3 키만 저장 (messages 제외)
@@ -79,20 +79,19 @@ public class ReportService {
                                 String title, String userMessage,
                                 BedrockService.AgenticLoopResult loopResult) {
         try {
-            List<Object> structuredData = null;
-            if (loopResult.structuredDataJson() != null && !loopResult.structuredDataJson().isBlank()) {
-                structuredData = objectMapper.readValue(
-                        loopResult.structuredDataJson(), new TypeReference<>() {});
-            }
-
             String createdAt = Instant.now()
                     .atZone(ZoneId.of("Asia/Seoul"))
                     .format(ISO_FORMAT);
 
-            List<ReportDocument.ReportMessage> messages = List.of(
-                    new ReportDocument.ReportMessage("user", userMessage, null),
-                    new ReportDocument.ReportMessage("assistant", loopResult.answer(), structuredData)
-            );
+            List<ReportDocument.ReportMessage> messages = new java.util.ArrayList<>();
+            messages.add(new ReportDocument.ReportMessage("user", userMessage, null, null));
+
+            for (BedrockService.ChartData chart : loopResult.chartDataList()) {
+                List<Object> data = objectMapper.readValue(chart.dataJson(), new TypeReference<>() {});
+                messages.add(new ReportDocument.ReportMessage("assistant", "", chart.chartType(), data));
+            }
+
+            messages.add(new ReportDocument.ReportMessage("assistant", loopResult.answer(), null, null));
 
             ReportDocument doc = new ReportDocument(conversationId, userId, title, createdAt, messages);
             String json = objectMapper.writeValueAsString(doc);
@@ -134,8 +133,29 @@ public class ReportService {
     }
 
     private String buildPrompt(String reportType) {
-        return "지난 한 주(2026-02-01~02-07) 구글과 카카오 광고 전체 성과를 요약해줘. " +
-               "캠페인별 주요 지표, 매체 비교, 개선 제안을 포함해줘.";
+        return """
+                [ABSOLUTE RULE - NEVER VIOLATE]
+                1. 섹션 제목(##, ###)에 이모지 절대 사용 금지
+                2. bullet point 앞에 이모지 절대 사용 금지
+                3. 허용되는 섹션 제목: "## 성과 요약", "## 주요 인사이트", "## 개선 제안" 만 사용
+                4. 소제목은 ### 없이 "구글 광고", "카카오 광고" 같은 텍스트만 사용
+                5. 텍스트 어디에도 이모지(Unicode emoji) 문자를 출력하지 마세요.
+
+                지난 한 주(2026-02-01~02-07) 구글과 카카오 광고 전체 성과를 분석해줘.
+                캠페인별 주요 지표, 매체 비교, 개선 제안을 포함해줘.
+
+                응답은 반드시 아래 3개 섹션을 ## 헤더로 구분해서 작성하세요.
+                섹션 제목에 볼드(**) 사용 금지.
+
+                ## 성과 요약
+                (전체 매체 통합 성과를 3~5줄 요약)
+
+                ## 주요 인사이트
+                (구글/카카오 각 캠페인별 핵심 발견사항을 bullet point로)
+
+                ## 개선 제안
+                (구체적인 액션 아이템을 bullet point로)
+                """;
     }
 
     private String attr(Map<String, AttributeValue> item, String key) {

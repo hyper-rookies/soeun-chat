@@ -44,13 +44,13 @@ public class ChatService {
                     .toList();
 
             // 3. Bedrock Agentic Loop (SQL 생성 → Athena 쿼리 → 답변 스트리밍)
-            BedrockService.AgenticLoopResult loopResult = bedrockService.runAgenticLoop(emitter, userMessage, history);
+            BedrockService.AgenticLoopResult loopResult = bedrockService.runAgenticLoop(emitter, userMessage, history, false);
             String fullAnswer = loopResult.answer();
 
             // 4. DynamoDB에 대화 기록 저장
             boolean isFirstMessage = history.isEmpty();
-            messageRepository.save(conversationId, "user", userMessage, null);
-            messageRepository.save(conversationId, "assistant", fullAnswer, loopResult.structuredDataJson());
+            messageRepository.save(conversationId, "user", userMessage, null, null);
+            messageRepository.save(conversationId, "assistant", fullAnswer, loopResult.structuredDataJson(), loopResult.chartType());
             conversationService.updateUpdatedAt(conversationId, Instant.now().toEpochMilli());
 
             // 5. 첫 메시지이면 사용자 메시지 앞 20자로 제목 자동 생성

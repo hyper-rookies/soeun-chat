@@ -151,6 +151,128 @@ public class BedrockService {
         If the question is unrelated to ad data, respond with ONLY: INVALID
         """;
 
+    private static final String REPORT_SYSTEM_PROMPT = """
+        ================================
+        ROLE
+        ================================
+        You are a weekly ad performance report generator.
+        You MUST execute exactly the following 4 SQL queries in order, then write a structured report.
+        RESPONSE LANGUAGE: Korean only.
+
+        ================================
+        STEP 1 — EXECUTE 4 FIXED QUERIES (IN ORDER)
+        ================================
+        Execute these 4 queries sequentially using execute_athena_query tool.
+        Do NOT skip any query. Do NOT ask the user. Just execute all 4.
+
+        [Query 1] 매체별 광고비 합계 (pie chart)
+        SELECT
+          '구글' AS "매체",
+          ROUND(SUM(cost_micros) / 1000000.0, 0) AS "광고비(원)"
+        FROM se_report_db.google_ad_performance
+        WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+        UNION ALL
+        SELECT
+          '카카오' AS "매체",
+          ROUND(SUM(spending), 0) AS "광고비(원)"
+        FROM se_report_db.kakao_ad_performance
+        WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+
+        [Query 2] 일별 매체 통합 광고비 추이 (line chart)
+        SELECT
+          SUBSTR(CAST(basic_date AS VARCHAR),1,4)||'-'||SUBSTR(CAST(basic_date AS VARCHAR),5,2)||'-'||SUBSTR(CAST(basic_date AS VARCHAR),7,2) AS "날짜",
+          ROUND(SUM(cost_micros)/1000000.0,0) AS "구글 광고비(원)",
+          0 AS "카카오 광고비(원)"
+        FROM se_report_db.google_ad_performance
+        WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+        GROUP BY basic_date
+        UNION ALL
+        SELECT
+          SUBSTR(CAST(basic_date AS VARCHAR),1,4)||'-'||SUBSTR(CAST(basic_date AS VARCHAR),5,2)||'-'||SUBSTR(CAST(basic_date AS VARCHAR),7,2) AS "날짜",
+          0 AS "구글 광고비(원)",
+          ROUND(SUM(spending),0) AS "카카오 광고비(원)"
+        FROM se_report_db.kakao_ad_performance
+        WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+        GROUP BY basic_date
+        ORDER BY "날짜"
+
+        [Query 3] 구글 캠페인별 성과 (bar chart)
+        SELECT
+          camp_name AS "캠페인명",
+          SUM(clicks) AS "클릭수",
+          ROUND(SUM(cost_micros)/1000000.0, 0) AS "광고비(원)"
+        FROM se_report_db.google_ad_performance
+        WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+        GROUP BY camp_name
+        ORDER BY "클릭수" DESC
+        LIMIT 5
+
+        [Query 4] 주간 일별 상세 지표 (table)
+        SELECT
+          SUBSTR(CAST(basic_date AS VARCHAR),1,4)||'-'||SUBSTR(CAST(basic_date AS VARCHAR),5,2)||'-'||SUBSTR(CAST(basic_date AS VARCHAR),7,2) AS "날짜",
+          SUM(g_imp) AS "구글 노출",
+          SUM(g_click) AS "구글 클릭",
+          ROUND(SUM(g_cost),0) AS "구글 광고비(원)",
+          SUM(k_imp) AS "카카오 노출",
+          SUM(k_click) AS "카카오 클릭",
+          ROUND(SUM(k_cost),0) AS "카카오 광고비(원)"
+        FROM (
+          SELECT basic_date,
+            SUM(impressions) AS g_imp, SUM(clicks) AS g_click,
+            SUM(cost_micros)/1000000.0 AS g_cost,
+            0 AS k_imp, 0 AS k_click, 0 AS k_cost
+          FROM se_report_db.google_ad_performance
+          WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+          GROUP BY basic_date
+          UNION ALL
+          SELECT basic_date,
+            0 AS g_imp, 0 AS g_click, 0 AS g_cost,
+            SUM(imp) AS k_imp, SUM(click) AS k_click, SUM(spending) AS k_cost
+          FROM se_report_db.kakao_ad_performance
+          WHERE year='2026' AND month_p='02' AND basic_date BETWEEN 20260201 AND 20260207
+          GROUP BY basic_date
+        )
+        GROUP BY basic_date
+        ORDER BY basic_date
+
+        ================================
+        STEP 2 — CHART TYPE ASSIGNMENT
+        ================================
+        After each query result, send the data with the correct chart type:
+        - Query 1 result → chartType: "pie"
+        - Query 2 result → chartType: "line"
+        - Query 3 result → chartType: "bar"
+        - Query 4 result → chartType: "table"
+
+        ================================
+        STEP 3 — WRITE REPORT IN EXACTLY 3 SECTIONS
+        ================================
+        After all 4 queries are done, write the analysis using EXACTLY this structure.
+        DO NOT add any other sections. DO NOT change section titles.
+
+        ## 성과 요약
+
+        (3~5줄로 전체 매체 통합 핵심 수치 요약. 총 노출수, 클릭수, 광고비, CTR 포함)
+
+        ## 주요 인사이트
+
+        (구글/카카오 각 캠페인 핵심 발견사항을 bullet point로. ### 소제목 사용 가능)
+
+        ## 개선 제안
+
+        (구체적 액션 아이템을 bullet point로. ### 소제목 사용 가능)
+
+        ================================
+        STRICT RULES
+        ================================
+        1. Execute ALL 4 queries before writing the report. No exceptions.
+        2. Section titles MUST be exactly: "성과 요약", "주요 인사이트", "개선 제안"
+        3. Do NOT add intro sentences like "분석을 시작하겠습니다" or "안녕하세요".
+        4. Do NOT use emoji in section titles.
+        5. Markdown: always one space after ##/###, blank line before/after headings.
+        6. Respond in Korean only.
+        """;
+
     private static final String AGENTIC_SYSTEM_PROMPT = """
         ================================
         CRITICAL INSTRUCTION (READ FIRST)
@@ -462,13 +584,19 @@ public class BedrockService {
         return response.output().message().content().get(0).text().trim();
     }
 
-    public record AgenticLoopResult(String answer, String structuredDataJson) {}
+    public record ChartData(String chartType, String dataJson) {}
 
-    public AgenticLoopResult runAgenticLoop(SseEmitter emitter, String userMessage, List<ChatMessage> history) {
+    public record AgenticLoopResult(String answer, String structuredDataJson, String chartType, List<ChartData> chartDataList) {}
+
+    public AgenticLoopResult runAgenticLoop(SseEmitter emitter, String userMessage, List<ChatMessage> history, boolean isReport) {
+        String systemPrompt = isReport ? REPORT_SYSTEM_PROMPT : AGENTIC_SYSTEM_PROMPT;
         List<Message> messages = buildConverseMessages(userMessage, history);
         StringBuilder fullAnswer = new StringBuilder();
         ToolConfiguration toolConfig = buildToolConfiguration();
         String lastStructuredDataJson = null;
+        String lastChartType = null;
+        List<ChartData> chartDataList = new ArrayList<>();
+        int queryCount = 0;
 
         for (int iter = 0; iter < 5; iter++) {
             log.info("Agentic loop iteration {}", iter + 1);
@@ -524,7 +652,7 @@ public class BedrockService {
                 bedrockRuntimeAsyncClient.converseStream(
                         ConverseStreamRequest.builder()
                                 .modelId(modelId)
-                                .system(SystemContentBlock.fromText(AGENTIC_SYSTEM_PROMPT))
+                                .system(SystemContentBlock.fromText(systemPrompt))
                                 .messages(messages)
                                 .toolConfig(toolConfig)
                                 .build(),
@@ -595,8 +723,19 @@ public class BedrockService {
                 log.info("Athena 쿼리 성공");
 
                 try {
-                    String chartType = detectChartType(userMessage, athenaResult.json());
-                    String dataPayload = "{\"chartType\":\"" + chartType + "\","
+                    if (isReport) {
+                        lastChartType = switch (queryCount) {
+                            case 0 -> "pie";
+                            case 1 -> "line";
+                            case 2 -> "bar";
+                            case 3 -> "table";
+                            default -> "table";
+                        };
+                    } else {
+                        lastChartType = detectChartType(userMessage, athenaResult.json());
+                    }
+                    chartDataList.add(new ChartData(lastChartType, athenaResult.json()));
+                    String dataPayload = "{\"chartType\":\"" + lastChartType + "\","
                             + "\"data\":" + athenaResult.json() + "}";
                     emitter.send(SseEmitter.event()
                             .name("data")
@@ -604,6 +743,7 @@ public class BedrockService {
                 } catch (Exception e) {
                     log.warn("데이터 SSE 전송 실패: {}", e.getMessage());
                 }
+                queryCount++;
             } catch (Exception e) {
                 toolResultContent = "쿼리 실행 실패: " + e.getMessage();
                 toolResultStatus  = ToolResultStatus.ERROR;
@@ -622,7 +762,7 @@ public class BedrockService {
                     .build());
         }
 
-        return new AgenticLoopResult(fullAnswer.toString(), lastStructuredDataJson);
+        return new AgenticLoopResult(fullAnswer.toString(), lastStructuredDataJson, lastChartType, chartDataList);
     }
 
     private String detectChartType(String userMessage, String json) {

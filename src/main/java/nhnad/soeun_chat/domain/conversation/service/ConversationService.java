@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import nhnad.soeun_chat.domain.chat.repository.ConversationRepository;
 import nhnad.soeun_chat.domain.chat.repository.MessageRepository;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationResponse;
+import nhnad.soeun_chat.domain.report.service.ReportS3Loader;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationSummary;
 import nhnad.soeun_chat.domain.conversation.dto.MessageItem;
 import nhnad.soeun_chat.global.error.ErrorCode;
@@ -28,6 +29,7 @@ public class ConversationService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final ObjectMapper objectMapper;
+    private final ReportS3Loader reportS3Loader;
 
     public ConversationResponse createConversation(String userId, String title) {
         String conversationId = UUID.randomUUID().toString();
@@ -57,6 +59,11 @@ public class ConversationService {
 
         checkOwner(item, userId, conversationId);
 
+        String reportS3Key = attrOrDefault(item, "reportS3Key", null);
+        if (reportS3Key != null) {
+            return reportS3Loader.load(item, reportS3Key);
+        }
+
         long now = Instant.now().toEpochMilli();
 
         List<MessageItem> messages = messageRepository.findByConversationId(conversationId).stream()
@@ -65,6 +72,7 @@ public class ConversationService {
                         attr(msg, "role"),
                         attr(msg, "content"),
                         attr(msg, "createdAt"),
+                        attr(msg, "chartType"),
                         parseStructuredData(msg)
                 ))
                 .toList();

@@ -13,7 +13,7 @@ import nhnad.soeun_chat.domain.chat.repository.ConversationRepository;
 import nhnad.soeun_chat.domain.chat.repository.MessageRepository;
 import nhnad.soeun_chat.domain.conversation.dto.ConversationResponse;
 import nhnad.soeun_chat.domain.conversation.dto.MessageItem;
-import nhnad.soeun_chat.domain.report.dto.ReportDocument;
+import nhnad.soeun_chat.domain.report.service.ReportS3Loader;
 import nhnad.soeun_chat.domain.share.dto.ShareCreateResponse;
 import nhnad.soeun_chat.global.error.ErrorCode;
 import nhnad.soeun_chat.global.exception.EntityNotFoundException;
@@ -21,11 +21,7 @@ import nhnad.soeun_chat.global.exception.ForbiddenException;
 import nhnad.soeun_chat.global.exception.UnauthorizedException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -52,13 +48,10 @@ public class ShareService {
     @Value("${share.base-url}")
     private String baseUrl;
 
-    @Value("${aws.s3.bucket}")
-    private String s3Bucket;
-
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final ObjectMapper objectMapper;
-    private final S3Client s3Client;
+    private final ReportS3Loader reportS3Loader;
 
     public String generateSystemShareToken(String conversationId) {
         Instant expiry = Instant.now().plus(expirationDays, ChronoUnit.DAYS);
@@ -112,7 +105,7 @@ public class ShareService {
         // reportS3Key가 있으면 S3에서 로드, 없으면 기존 DynamoDB messages 방식
         String reportS3Key = attrOrDefault(item, "reportS3Key", null);
         if (reportS3Key != null) {
-            return loadConversationFromS3(item, reportS3Key);
+            return reportS3Loader.load(item, reportS3Key);
         }
 
         long now = Instant.now().toEpochMilli();
@@ -123,6 +116,7 @@ public class ShareService {
                         attr(msg, "role"),
                         attr(msg, "content"),
                         attr(msg, "createdAt"),
+                        attr(msg, "chartType"),
                         parseStructuredData(msg)
                 ))
                 .toList();
@@ -134,42 +128,6 @@ public class ShareService {
                 attrNOrDefault(item, "updatedAt", now),
                 messages
         );
-    }
-
-    private ConversationResponse loadConversationFromS3(Map<String, AttributeValue> item, String s3Key) {
-        try {
-            ResponseInputStream<GetObjectResponse> s3Object = s3Client.getObject(
-                    GetObjectRequest.builder()
-                            .bucket(s3Bucket)
-                            .key(s3Key)
-                            .build()
-            );
-
-            ReportDocument doc = objectMapper.readValue(s3Object, ReportDocument.class);
-            log.info("리포트 S3 로드 완료 - conversationId: {}, s3Key: {}", doc.conversationId(), s3Key);
-
-            List<MessageItem> messages = doc.messages().stream()
-                    .map(msg -> new MessageItem(
-                            null,
-                            msg.role(),
-                            msg.content(),
-                            doc.createdAt(),
-                            msg.structuredData()
-                    ))
-                    .toList();
-
-            long now = Instant.now().toEpochMilli();
-            return new ConversationResponse(
-                    doc.conversationId(),
-                    doc.title(),
-                    attrNOrDefault(item, "createdAt", now),
-                    attrNOrDefault(item, "updatedAt", now),
-                    messages
-            );
-        } catch (Exception e) {
-            log.error("리포트 S3 로드 실패 - s3Key: {}", s3Key, e);
-            throw new RuntimeException("리포트 S3 로드 중 오류 발생", e);
-        }
     }
 
     private String validateShareToken(String token) {

@@ -8,7 +8,6 @@ import nhnad.soeun_chat.domain.report.dto.ReportSummary;
 import nhnad.soeun_chat.domain.report.service.ReportService;
 import nhnad.soeun_chat.global.error.ErrorCode;
 import nhnad.soeun_chat.global.exception.UnauthorizedException;
-import nhnad.soeun_chat.global.jwt.JwtValidator;
 import nhnad.soeun_chat.global.response.ApiResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -26,12 +25,10 @@ public class ReportController {
     private String internalApiKey;
 
     private final ReportService reportService;
-    private final JwtValidator jwtValidator;
 
     @PostMapping("/report")
     public ApiResponse<ReportResponse> generateReport(
             @RequestHeader("X-Internal-Key") String internalKey,
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody ReportRequest request) {
 
         if (!internalApiKey.equals(internalKey)) {
@@ -39,7 +36,7 @@ public class ReportController {
             throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
         }
 
-        String userId = extractUserId(authHeader);
+        String userId = (request.targetUserId() != null) ? request.targetUserId() : "system";
         log.info("자동 리포트 요청 수신 - userId: {}, reportType: {}", userId, request.reportType());
 
         ReportResponse response = reportService.generateReport(userId, request);
@@ -55,16 +52,4 @@ public class ReportController {
         return ApiResponse.of(reports);
     }
 
-    private String extractUserId(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return "system";
-        }
-        String token = authHeader.substring(7);
-        try {
-            return jwtValidator.validate(token).getSubject();
-        } catch (Exception e) {
-            log.warn("Authorization JWT 검증 실패, system으로 처리: {}", e.getMessage());
-            return "system";
-        }
-    }
 }

@@ -19,6 +19,7 @@ public record ReportDocument(
     public record ReportMessage(
             String role,
             String content,
+            String chartType,
             List<Object> structuredData
     ) {}
 }

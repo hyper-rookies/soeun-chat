@@ -7,6 +7,7 @@ public record MessageItem(
         String role,
         String content,
         String createdAt,
-        List<Object> structuredData
+        String chartType,
+        List<Object> data
 ) {
 }
