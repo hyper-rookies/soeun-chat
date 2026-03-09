@@ -6,6 +6,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import nhnad.soeun_chat.domain.auth.dto.AuthResponse;
 import nhnad.soeun_chat.domain.auth.dto.CallbackRequest;
+import nhnad.soeun_chat.domain.auth.dto.RefreshRequest;
+import nhnad.soeun_chat.domain.auth.dto.RefreshResponse;
 import nhnad.soeun_chat.domain.auth.service.AuthService;
 import nhnad.soeun_chat.global.response.ApiResponse;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,5 +27,11 @@ public class AuthController {
     @PostMapping("/callback")
     public ApiResponse<AuthResponse> callback(@Valid @RequestBody CallbackRequest request) {
         return ApiResponse.of(authService.callback(request.code(), request.redirectUri()));
+    }
+
+    @Operation(summary = "액세스 토큰 갱신", description = "refresh_token으로 새로운 액세스 토큰을 발급합니다.")
+    @PostMapping("/refresh")
+    public ApiResponse<RefreshResponse> refresh(@Valid @RequestBody RefreshRequest request) {
+        return ApiResponse.of(authService.refresh(request.refreshToken()));
     }
 }
