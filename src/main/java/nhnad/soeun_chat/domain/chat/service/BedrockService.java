@@ -754,7 +754,10 @@ public class BedrockService {
                                             || state.sseBuffer.length() >= 20;
                                     if (shouldFlush) {
                                         try {
-                                            emitter.send(SseEmitter.event().name("message").data(buf, MediaType.TEXT_PLAIN));
+                                            String cleanBuf = CHART_TYPE_TAG_PATTERN.matcher(buf).replaceAll("").trim();
+                                            if (!cleanBuf.isEmpty()) {
+                                                emitter.send(SseEmitter.event().name("message").data(cleanBuf, MediaType.TEXT_PLAIN));
+                                            }
                                         } catch (Exception e) {
                                             log.warn("SSE 전송 실패: {}", e.getMessage());
                                         }
@@ -792,7 +795,10 @@ public class BedrockService {
             // 스트림 종료 후 버퍼에 남은 내용 flush
             if (state.sseBuffer.length() > 0) {
                 try {
-                    emitter.send(SseEmitter.event().name("message").data(state.sseBuffer.toString(), MediaType.TEXT_PLAIN));
+                    String cleanRemaining = CHART_TYPE_TAG_PATTERN.matcher(state.sseBuffer.toString()).replaceAll("").trim();
+                    if (!cleanRemaining.isEmpty()) {
+                        emitter.send(SseEmitter.event().name("message").data(cleanRemaining, MediaType.TEXT_PLAIN));
+                    }
                 } catch (Exception e) {
                     log.warn("SSE 잔여 버퍼 전송 실패: {}", e.getMessage());
                 }
