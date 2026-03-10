@@ -390,12 +390,26 @@ public class BedrockService {
             - line  : 날짜/시간 축이 있는 추이 데이터 (일별, 주별 트렌드)
             - bar   : 카테고리 간 비교 (캠페인별, 키워드별, 매체별 수치 비교)
             - pie   : 전체 대비 비율/구성 (매체별 비중, 비율)
-            - table : 다수 컬럼의 상세 데이터 (3개 이상 지표 동시 표시)
-            
+            - table : 다수 컬럼의 상세 데이터 (3개 이상 지표), 또는 사용자가 "표", "테이블", "목록", "리스트"를 명시한 경우
+
+            [MANDATORY — chartType TAG]
+            After EVERY execute_athena_query call, you MUST append the following tag
+            on its own line at the very end of your response chunk:
+            <chartType>table</chartType>
+
+            Replace "table" with the actual chart type you selected: line / bar / pie / table
+            Rules:
+            - This tag MUST always be present after a query result. No exceptions.
+            - If the user explicitly says "표", "테이블", "목록", "리스트" → always use table
+            - If the user explicitly says "차트", "그래프" → use line / bar / pie based on data
+            - The tag will be automatically stripped before displaying to the user
+            - Do NOT explain the tag. Do NOT mention it in your response text.
+
             When responding after chart data retrieval:
             1. Write your analysis text normally in Korean markdown
-            2. Do NOT describe the chart in text — the chart renders automatically from data
-            3. Keep analysis concise — the visual chart already shows the numbers
+            2. Append <chartType>xxx</chartType> tag at the very end
+            3. Do NOT describe the chart in text — the chart renders automatically from data
+            4. Keep analysis concise — the visual chart already shows the numbers
 
         ================================
         DATABASE SCHEMA
@@ -842,7 +856,8 @@ public class BedrockService {
                             default -> "table";
                         };
                     } else {
-                        lastChartType = detectChartType(userMessage, athenaResult.json());
+                        // Claude 응답 텍스트에서 <chartType> 태그 추출 (폴백: JSON 구조 기반)
+                        lastChartType = extractChartType(state.text.toString(), athenaResult.json());
                     }
                     chartDataList.add(new ChartData(lastChartType, athenaResult.json()));
                     String dataPayload = "{\"chartType\":\"" + lastChartType + "\","
@@ -872,7 +887,9 @@ public class BedrockService {
                     .build());
         }
 
-        return new AgenticLoopResult(fullAnswer.toString(), lastStructuredDataJson, lastChartType, chartDataList);
+        // 사용자에게 노출되는 텍스트에서 <chartType> 태그 제거
+        String cleanAnswer = CHART_TYPE_TAG_PATTERN.matcher(fullAnswer.toString()).replaceAll("").trim();
+        return new AgenticLoopResult(cleanAnswer, lastStructuredDataJson, lastChartType, chartDataList);
     }
 
     private void sendStatus(SseEmitter emitter, String step, String message) {
@@ -884,15 +901,31 @@ public class BedrockService {
         }
     }
 
-    private String detectChartType(String userMessage, String json) {
-        if (userMessage.matches(".*?(매체별|비중|비율|구성|점유율).*")) return "pie";
-        if (userMessage.matches(".*?(비교|순위|캠페인별|키워드별|상위|랭킹).*")) return "bar";
-        if (userMessage.matches(".*?(추이|트렌드|일별|변화|흐름|시계열).*")) return "line";
+    private static final java.util.regex.Pattern CHART_TYPE_TAG_PATTERN =
+            java.util.regex.Pattern.compile("<chartType>(line|bar|pie|table)</chartType>");
 
+    /**
+     * Claude 응답 텍스트에서 <chartType>xxx</chartType> 태그를 추출한다.
+     * 태그가 없으면 JSON 구조 기반으로 폴백한다.
+     */
+    private String extractChartType(String claudeText, String json) {
+        if (claudeText != null) {
+            java.util.regex.Matcher m = CHART_TYPE_TAG_PATTERN.matcher(claudeText);
+            // 마지막으로 등장한 태그를 사용 (멀티 쿼리 시 가장 최근 것)
+            String found = null;
+            while (m.find()) found = m.group(1);
+            if (found != null) return found;
+        }
+        // 폴백: JSON 컬럼 수 기반
+        return detectChartTypeFromJson(json);
+    }
+
+    private String detectChartTypeFromJson(String json) {
         try {
             com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
             if (node.isArray() && node.size() > 0) {
                 com.fasterxml.jackson.databind.JsonNode first = node.get(0);
+                if (first.size() >= 4) return "table";
                 if (first.has("날짜") || first.has("date") || first.has("일자")) return "line";
                 if (first.size() == 2) return "pie";
                 return "bar";
@@ -900,7 +933,6 @@ public class BedrockService {
         } catch (Exception e) {
             log.warn("차트 타입 감지 실패: {}", e.getMessage());
         }
-
         return "table";
     }
 
