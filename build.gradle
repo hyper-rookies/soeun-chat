@@ -66,6 +66,9 @@ dependencies {
 	// AWS Cognito Identity Provider - 유저 목록 조회
 	implementation 'software.amazon.awssdk:cognitoidentityprovider'
 
+	// AWS Lambda - Excel export invoke
+	implementation 'software.amazon.awssdk:lambda'
+
 	// Cache
 	implementation 'com.github.ben-manes.caffeine:caffeine'
 	implementation 'org.springframework.boot:spring-boot-starter-cache'

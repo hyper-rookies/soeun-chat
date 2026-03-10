@@ -1,22 +1,30 @@
 package nhnad.soeun_chat.domain.report.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import nhnad.soeun_chat.domain.chat.repository.ConversationRepository;
 import nhnad.soeun_chat.domain.chat.service.BedrockService;
 import nhnad.soeun_chat.domain.conversation.service.ConversationService;
+import nhnad.soeun_chat.domain.report.dto.ExcelExportResponse;
 import nhnad.soeun_chat.domain.report.dto.ReportDocument;
 import nhnad.soeun_chat.domain.report.dto.ReportRequest;
 import nhnad.soeun_chat.domain.report.dto.ReportResponse;
 import nhnad.soeun_chat.domain.report.dto.ReportSummary;
 import nhnad.soeun_chat.domain.share.service.ShareService;
+import nhnad.soeun_chat.global.error.ErrorCode;
+import nhnad.soeun_chat.global.exception.InternalServerException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.lambda.LambdaClient;
+import software.amazon.awssdk.services.lambda.model.InvokeRequest;
+import software.amazon.awssdk.services.lambda.model.InvokeResponse;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
@@ -38,11 +46,15 @@ public class ReportService {
     @Value("${aws.s3.bucket}")
     private String s3Bucket;
 
+    @Value("${excel.lambda.function-name}")
+    private String excelLambdaFunctionName;
+
     private final ConversationRepository conversationRepository;
     private final BedrockService bedrockService;
     private final ConversationService conversationService;
     private final ShareService shareService;
     private final S3Client s3Client;
+    private final LambdaClient lambdaClient;
     private final ObjectMapper objectMapper;
 
     public ReportResponse generateReport(String userId, ReportRequest request) {
@@ -156,6 +168,39 @@ public class ReportService {
                 ## 개선 제안
                 (구체적인 액션 아이템을 bullet point로)
                 """;
+    }
+
+    public ExcelExportResponse exportExcel(String conversationId) {
+        try {
+            String payloadJson = objectMapper.writeValueAsString(Map.of("conversationId", conversationId));
+
+            InvokeRequest invokeRequest = InvokeRequest.builder()
+                    .functionName(excelLambdaFunctionName)
+                    .payload(SdkBytes.fromUtf8String(payloadJson))
+                    .build();
+
+            InvokeResponse invokeResponse = lambdaClient.invoke(invokeRequest);
+
+            String responseJson = invokeResponse.payload().asUtf8String();
+            JsonNode root = objectMapper.readTree(responseJson);
+
+            int statusCode = root.path("statusCode").asInt();
+            if (statusCode != 200) {
+                log.error("Excel Lambda 오류 응답 - statusCode: {}, body: {}", statusCode, root.path("body").asText());
+                throw new InternalServerException(ErrorCode.INTERNAL_SERVER_ERROR);
+            }
+
+            JsonNode body = objectMapper.readTree(root.path("body").asText());
+            String downloadUrl = body.path("downloadUrl").asText();
+            String fileName = body.path("fileName").asText();
+
+            return new ExcelExportResponse(downloadUrl, fileName);
+        } catch (InternalServerException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Excel Lambda invoke 실패 - conversationId: {}", conversationId, e);
+            throw new InternalServerException(ErrorCode.INTERNAL_SERVER_ERROR);
+        }
     }
 
     private String attr(Map<String, AttributeValue> item, String key) {

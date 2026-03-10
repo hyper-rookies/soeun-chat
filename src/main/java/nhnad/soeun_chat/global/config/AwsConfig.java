@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.lambda.LambdaClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 @Configuration
@@ -67,6 +68,14 @@ public class AwsConfig {
     public CognitoIdentityProviderClient cognitoIdentityProviderClient() {
         return CognitoIdentityProviderClient.builder()
                 .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
+    @Bean
+    public LambdaClient lambdaClient() {
+        return LambdaClient.builder()
+                .region(Region.AP_NORTHEAST_2)
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }

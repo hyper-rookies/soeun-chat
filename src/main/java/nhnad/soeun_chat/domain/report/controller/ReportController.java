@@ -2,6 +2,7 @@ package nhnad.soeun_chat.domain.report.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import nhnad.soeun_chat.domain.report.dto.ExcelExportResponse;
 import nhnad.soeun_chat.domain.report.dto.ReportRequest;
 import nhnad.soeun_chat.domain.report.dto.ReportResponse;
 import nhnad.soeun_chat.domain.report.dto.ReportSummary;
@@ -50,6 +51,16 @@ public class ReportController {
         log.info("리포트 목록 조회 - userId: {}", userId);
         List<ReportSummary> reports = reportService.getReports(userId);
         return ApiResponse.of(reports);
+    }
+
+    @GetMapping("/report/{conversationId}/excel")
+    public ApiResponse<ExcelExportResponse> exportExcel(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String conversationId) {
+
+        log.info("Excel 내보내기 요청 - userId: {}, conversationId: {}", userId, conversationId);
+        ExcelExportResponse response = reportService.exportExcel(conversationId);
+        return ApiResponse.of(response);
     }
 
 }
